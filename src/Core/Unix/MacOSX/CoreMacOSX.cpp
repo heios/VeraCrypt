@@ -11,6 +11,7 @@
 */
 
 #include <fstream>
+#include <fcntl.h>
 #include <errno.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -24,9 +25,13 @@
 #include <sys/types.h>
 #include <sys/wait.h>
 #include <sys/stat.h>
+#include <sys/disk.h>
+#include <sys/ioctl.h>
 #include "CoreMacOSX.h"
+#include "Common/Volumes.h"
 #include "Driver/Fuse/FuseService.h"
 #include "Core/Unix/CoreServiceProxy.h"
+#include "Core/Unix/ExfatFreeSpace.h"
 #include "Platform/FileStream.h"
 #include "Platform/MemoryStream.h"
 #include "Platform/Serializable.h"
@@ -34,6 +39,8 @@
 
 namespace VeraCrypt
 {
+	static bool IsPlainDiskDevicePath (const string &path);
+
 	// RAII wrapper so CFRelease is never forgotten on early returns / exceptions.
 	class CFHolder
 	{
@@ -301,7 +308,7 @@ namespace VeraCrypt
 		return current;
 	}
 
-	shared_ptr <VolumeInfo> CoreMacOSX::DismountVolume (shared_ptr <VolumeInfo> mountedVolume, bool ignoreOpenFiles, bool syncVolumeInfo)
+	shared_ptr <VolumeInfo> CoreMacOSX::DetachVolume (shared_ptr <VolumeInfo> mountedVolume, bool ignoreOpenFiles, bool syncVolumeInfo, const DetachedVolumeHandler &onDetached)
 	{
 		if (!mountedVolume || mountedVolume->AuxMountPoint.IsEmpty())
 			throw ParameterIncorrect (SRC_POS);
@@ -368,6 +375,10 @@ namespace VeraCrypt
 			mountedVolume = ValidateMountedVolume (mountedVolume);
 		}
 
+		// The disk image is detached; the volume image is still served
+		if (onDetached)
+			onDetached (*mountedVolume);
+
 #ifdef VC_MACOSX_FUSET
 		}
 		// The service unmounts SMB while its FUSE loop can still answer requests.
@@ -423,6 +434,85 @@ namespace VeraCrypt
 		}
 
 		return mountedVolume;
+	}
+
+	// /dev/diskN[sM] to /dev/rdiskN[sM], which bypasses the buffer cache. Devices selected
+	// in the GUI are already raw.
+	string CoreMacOSX::GetTrimDevicePath (const FilesystemPath &devicePath) const
+	{
+		string p = devicePath;
+		if (!IsPlainDiskDevicePath (p))
+			throw TrimFailed (SRC_POS, L"TRIM_UNSUPPORTED_HOST");
+		return p.compare (0, 10, "/dev/rdisk") == 0 ? p : "/dev/r" + p.substr (5);
+	}
+
+	int CoreMacOSX::OpenTrimDevice (const string &devicePath, bool readWrite, uint64 &size, uint32 &blockSize) const
+	{
+		int fd = open (devicePath.c_str(), readWrite ? O_RDWR : O_RDONLY);
+		throw_sys_sub_if (fd == -1, StringConverter::ToWide (devicePath));
+
+		uint64 blockCount;
+		if (ioctl (fd, DKIOCGETBLOCKSIZE, &blockSize) == -1 || ioctl (fd, DKIOCGETBLOCKCOUNT, &blockCount) == -1)
+		{
+			int err = errno;
+			close (fd);
+			errno = err;
+			throw SystemException (SRC_POS, StringConverter::ToWide (devicePath));
+		}
+
+		size = blockCount * blockSize;
+		return fd;
+	}
+
+	bool CoreMacOSX::TrimDeviceSupportsDiscard (int fd, const string &devicePath) const
+	{
+		uint32 features = 0;
+		return ioctl (fd, DKIOCGETFEATURES, &features) != -1 && (features & DK_FEATURE_UNMAP);
+	}
+
+	bool CoreMacOSX::IsExfatMounted (const VolumeInfo &volume, uint64 &freeBytes) const
+	{
+		struct statfs fs;
+		if (statfs (string (volume.MountPoint).c_str(), &fs) == -1
+			|| string (fs.f_fstypename) != "exfat" || string (fs.f_mntfromname) != string (volume.VirtualDevice))
+			return false;
+
+		freeBytes = (uint64) fs.f_bfree * fs.f_bsize;
+		return true;
+	}
+
+	void CoreMacOSX::CheckExfatFilesystem (const string &devicePath) const
+	{
+		list <string> args;
+		args.push_back ("-n");
+		args.push_back (devicePath);
+		Process::ExecuteBounded ("/sbin/fsck_exfat", args, TrimFsckTimeout, TrimFsckOutputLimit);
+	}
+
+	void CoreMacOSX::FlushTrimDevice (int fd) const
+	{
+		dk_synchronize_t sync;
+		memset (&sync, 0, sizeof (sync));
+		if (ioctl (fd, DKIOCSYNCHRONIZE, &sync) == -1)
+			SystemLog::WriteError ("DKIOCSYNCHRONIZE failed: " + string (strerror (errno)));
+	}
+
+	void CoreMacOSX::DiscardTrimExtents (int fd, const string &devicePath, const vector <ExfatRange> &extents) const
+	{
+		vector <dk_extent_t> dkExtents;
+		for (const ExfatRange &extent : extents)
+		{
+			dk_extent_t dkExtent;
+			dkExtent.offset = extent.Offset;
+			dkExtent.length = extent.Length;
+			dkExtents.push_back (dkExtent);
+		}
+
+		dk_unmap_t request;
+		memset (&request, 0, sizeof (request));
+		request.extents = dkExtents.data();
+		request.extentsCount = (uint32) dkExtents.size();
+		throw_sys_sub_if (ioctl (fd, DKIOCUNMAP, &request) == -1, StringConverter::ToWide (devicePath));
 	}
 
 	static void ClearDiskImageInfo (shared_ptr <VolumeInfo> volume)

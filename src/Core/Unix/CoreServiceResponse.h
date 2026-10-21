@@ -48,6 +48,15 @@ namespace VeraCrypt
 		shared_ptr <VolumeInfo> DismountedVolumeInfo;
 	};
 
+	struct DismountVolumeAndTrimResponse : CoreServiceResponse
+	{
+		DismountVolumeAndTrimResponse () : TrimmedBytes (0) { }
+		TC_SERIALIZABLE (DismountVolumeAndTrimResponse);
+
+		wstring SkipReason;
+		uint64 TrimmedBytes;
+	};
+
 	struct GetDeviceSectorSizeResponse : CoreServiceResponse
 	{
 		GetDeviceSectorSizeResponse () { }

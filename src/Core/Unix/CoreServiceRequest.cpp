@@ -97,15 +97,16 @@ namespace VeraCrypt
 		MountedVolumeInfo = Serializable::DeserializeNew <VolumeInfo> (stream);
 	}
 
-	bool DismountVolumeRequest::RequiresElevation () const
+	// Dismounting needs root only where the host device is not writable by the user
+	static bool DismountRequiresElevation (shared_ptr <VolumeInfo> mountedVolumeInfo)
 	{
 #ifdef TC_MACOSX
-		if (MountedVolumeInfo->Path.IsDevice())
+		if (mountedVolumeInfo->Path.IsDevice())
 		{
 			try
 			{
 				File file;
-				file.Open (MountedVolumeInfo->Path, File::OpenReadWrite);
+				file.Open (mountedVolumeInfo->Path, File::OpenReadWrite);
 			}
 			catch (...)
 			{
@@ -118,12 +119,35 @@ namespace VeraCrypt
 		return !Core->HasAdminPrivileges();
 	}
 
+	bool DismountVolumeRequest::RequiresElevation () const
+	{
+		return DismountRequiresElevation (MountedVolumeInfo);
+	}
+
 	void DismountVolumeRequest::SerializeData (shared_ptr <Stream> stream) const
 	{
 		CoreServiceRequest::SerializeData (stream);
 		Serializer sr (stream);
 		sr.Serialize ("IgnoreOpenFiles", IgnoreOpenFiles);
 		sr.Serialize ("SyncVolumeInfo", SyncVolumeInfo);
+		MountedVolumeInfo->Serialize (stream);
+	}
+
+	// DismountVolumeAndTrimRequest
+	void DismountVolumeAndTrimRequest::DeserializeData (shared_ptr <Stream> stream)
+	{
+		CoreServiceRequest::DeserializeData (stream);
+		MountedVolumeInfo = Serializable::DeserializeNew <VolumeInfo> (stream);
+	}
+
+	bool DismountVolumeAndTrimRequest::RequiresElevation () const
+	{
+		return DismountRequiresElevation (MountedVolumeInfo);
+	}
+
+	void DismountVolumeAndTrimRequest::SerializeData (shared_ptr <Stream> stream) const
+	{
+		CoreServiceRequest::SerializeData (stream);
 		MountedVolumeInfo->Serialize (stream);
 	}
 
@@ -341,6 +365,7 @@ namespace VeraCrypt
 	TC_SERIALIZER_FACTORY_ADD_CLASS (CheckFilesystemRequest);
 	TC_SERIALIZER_FACTORY_ADD_CLASS (DismountFilesystemRequest);
 	TC_SERIALIZER_FACTORY_ADD_CLASS (DismountVolumeRequest);
+	TC_SERIALIZER_FACTORY_ADD_CLASS (DismountVolumeAndTrimRequest);
 #ifdef TC_LINUX
 	TC_SERIALIZER_FACTORY_ADD_CLASS (EmergencyDismountVolumeRequest);
 #endif

@@ -43,6 +43,13 @@ namespace VeraCrypt
 #if defined(TC_LINUX)
 		virtual shared_ptr <VolumeInfo> EmergencyDismountVolume (shared_ptr <VolumeInfo> mountedVolume) { throw NotApplicable (SRC_POS); }
 #endif
+		// Dismounts the volume and discards the free space of its filesystem on the host device.
+		// Returns the number of bytes discarded. Throws when the volume cannot be dismounted;
+		// once it is dismounted, a skipped or incomplete TRIM is reported through skipReason
+		// (a LangString key or a plain message) instead.
+		virtual uint64 DismountVolumeAndTrim (shared_ptr <VolumeInfo> mountedVolume, wstring &skipReason) { throw NotApplicable (SRC_POS); }
+		// Cheap check whether DismountVolumeAndTrim can work on the volume; reason is a LangString key
+		virtual bool IsTrimSupported (shared_ptr <VolumeInfo> mountedVolume, wstring &reason) const { reason = L"TRIM_NOT_SUPPORTED_ON_PLATFORM"; return false; }
 		virtual bool FilesystemSupportsLargeFiles (const FilePath &filePath) const = 0;
 		virtual DirectoryPath GetDeviceMountPoint (const DevicePath &devicePath) const = 0;
 		virtual uint32 GetDeviceSectorSize (const DevicePath &devicePath) const = 0;

@@ -12,14 +12,16 @@
 
 #include "CoreUnix.h"
 #include "Common/Tcdefs.h"
+#include "Common/Volumes.h"
 #include <errno.h>
+#include <string.h>
 #include <iostream>
 #include <signal.h>
 #include <sys/stat.h>
 #include <sys/time.h>
 #include <sys/types.h>
-#if defined(TC_MACOSX) && defined(VC_MACOSX_FUSET)
 #include <fcntl.h>
+#if defined(TC_MACOSX) && defined(VC_MACOSX_FUSET)
 #include <membership.h>
 #include <sys/acl.h>
 #include <sys/mount.h>
@@ -32,6 +34,7 @@
 #include "Platform/FileStream.h"
 #include "Platform/MemoryStream.h"
 #include "Platform/SystemLog.h"
+#include "Core/Unix/ExfatFreeSpace.h"
 #include "Core/Unix/UnixUser.h"
 #include "Driver/Fuse/FuseService.h"
 #include "Volume/VolumePasswordCache.h"
@@ -272,7 +275,447 @@ namespace VeraCrypt
 	}
 #endif
 
+	// Mounting a device-hosted volume as root leaves a record of its data area in
+	// /var/run/veracrypt/<device name>, keyed by the first sector of the host device and bound
+	// to the auxiliary mount serving the volume. TRIM after unmount needs the data offset,
+	// which VolumeInfo does not carry, and must be sure that the device still holds the volume
+	// that was mounted. The directory is root-only writable and cleared at boot, like the
+	// device naming.
+	static const char VolumeRecordDirectory[] = "/var/run/veracrypt";
+
+	string CoreUnix::GetDeviceHostedVolumeRecordName (const FilesystemPath &devicePath) const
+	{
+		const string device = GetTrimDevicePath (devicePath);
+		return device.substr (device.rfind ('/') + 1);
+	}
+
+	string CoreUnix::GetDeviceHostedVolumeRecordPath (const FilesystemPath &devicePath) const
+	{
+		return string (VolumeRecordDirectory) + "/" + GetDeviceHostedVolumeRecordName (devicePath);
+	}
+
+	// Opens the record directory if it is root-owned and neither group nor world writable.
+	// Records are opened relative to the returned descriptor, so the directory that was
+	// checked is the one used.
+	int CoreUnix::OpenDeviceHostedVolumeRecordDirectory ()
+	{
+		int fd = open (VolumeRecordDirectory, O_RDONLY | O_DIRECTORY | O_NOFOLLOW);
+		if (fd == -1)
+			return -1;
+
+		struct stat st;
+		if (fstat (fd, &st) == 0 && S_ISDIR (st.st_mode) && st.st_uid == 0 && !(st.st_mode & (S_IWGRP | S_IWOTH)))
+			return fd;
+
+		close (fd);
+		return -1;
+	}
+
+	void CoreUnix::RecordDeviceHostedVolume (const Volume &volume, const DirectoryPath &auxMountPoint) const
+	{
+		// Only a normal volume without protection in the current format can be trimmed; a
+		// legacy (V1) volume keeps its data right behind a 512-byte header
+		if (geteuid() != 0 || !SupportsTrimAfterDismount()
+			|| volume.GetType() != VolumeType::Normal || volume.GetProtectionType() != VolumeProtection::None
+			|| volume.GetLayout()->GetDataOffset (volume.GetHostSize()) < TC_VOLUME_DATA_OFFSET)
+			return;
+
+		// A record that cannot be written only disables TRIM; the mount must not fail
+		try
+		{
+			DeviceVolumeRecord record;
+			memset (&record, 0, sizeof (record));
+			record.DataOffset = volume.GetLayout()->GetDataOffset (volume.GetHostSize());
+			record.DataSize = volume.GetSize();
+			record.Type = (uint8) volume.GetType();
+			record.Protection = (uint8) volume.GetProtectionType();
+
+			MountedFilesystemList auxMounts = GetMountedFilesystems (DevicePath(), auxMountPoint);
+			if (auxMounts.size() != 1)
+			{
+				SystemLog::WriteError ("Auxiliary mount " + string (auxMountPoint) + " not found; TRIM after unmount is unavailable for this volume");
+				return;
+			}
+			memcpy (record.MountId, auxMounts.front()->MountId, sizeof (record.MountId));
+
+			Buffer sector (volume.GetSectorSize());
+			if (volume.GetFile()->ReadAt (sector, 0) != sector.Size())
+				throw ParameterIncorrect (SRC_POS);
+			memcpy (record.Header, sector.Ptr(), sizeof (record.Header));
+
+			if (mkdir (VolumeRecordDirectory, 0755) != 0)
+				throw_sys_sub_if (errno != EEXIST, VolumeRecordDirectory);
+
+			int dirFd = OpenDeviceHostedVolumeRecordDirectory();
+			if (dirFd == -1)
+				throw ParameterIncorrect (SRC_POS);
+			finally_do_arg (int, dirFd, { close (finally_arg); });
+			fchmod (dirFd, 0755);	// whatever the umask, so that IsTrimSupported can stat the record
+
+			const string name = GetDeviceHostedVolumeRecordName (volume.GetPath());
+			int fd = openat (dirFd, name.c_str(), O_WRONLY | O_CREAT | O_TRUNC | O_NOFOLLOW, 0600);
+			throw_sys_sub_if (fd == -1, StringConverter::ToWide (name));
+			finally_do_arg (int, fd, { close (finally_arg); });
+
+			fchmod (fd, 0600);
+			throw_sys_sub_if (write (fd, &record, sizeof (record)) != (ssize_t) sizeof (record), StringConverter::ToWide (name));
+		}
+		catch (exception &e)
+		{
+			SystemLog::WriteException (e);
+		}
+	}
+
+	void CoreUnix::RemoveDeviceHostedVolumeRecord (const VolumePath &devicePath) const
+	{
+		if (!SupportsTrimAfterDismount())
+			return;
+
+		try
+		{
+			int dirFd = OpenDeviceHostedVolumeRecordDirectory();
+			if (dirFd == -1)
+				return;
+			finally_do_arg (int, dirFd, { close (finally_arg); });
+			unlinkat (dirFd, GetDeviceHostedVolumeRecordName (devicePath).c_str(), 0);
+		}
+		catch (exception &) { }
+	}
+
+	// Reads the record of the volume mounted from the host device and checks that it is
+	// root-written, describes this volume and its auxiliary mount, and a data area of the
+	// volume's size inside the device
+	CoreUnix::DeviceVolumeRecord CoreUnix::ReadDeviceHostedVolumeRecord (const VolumeInfo &volume, uint64 hostSize) const
+	{
+		int dirFd = OpenDeviceHostedVolumeRecordDirectory();
+		if (dirFd == -1)
+			throw TrimFailed (SRC_POS, L"TRIM_MOUNT_RECORD_INVALID");
+		finally_do_arg (int, dirFd, { close (finally_arg); });
+
+		int fd = openat (dirFd, GetDeviceHostedVolumeRecordName (volume.Path).c_str(), O_RDONLY | O_NOFOLLOW);
+		if (fd == -1)
+			throw TrimFailed (SRC_POS, L"TRIM_NO_MOUNT_RECORD");
+		finally_do_arg (int, fd, { close (finally_arg); });
+
+		MountedFilesystemList auxMounts = GetMountedFilesystems (DevicePath(), volume.AuxMountPoint);
+		if (auxMounts.size() != 1)
+			throw TrimFailed (SRC_POS, L"TRIM_VOLUME_CHANGED");
+
+		struct stat st;
+		DeviceVolumeRecord record;
+		if (fstat (fd, &st) == -1 || !S_ISREG (st.st_mode) || st.st_uid != 0 || (st.st_mode & (S_IRWXG | S_IRWXO))
+			|| st.st_size != (off_t) sizeof (record) || read (fd, &record, sizeof (record)) != (ssize_t) sizeof (record)
+			|| memcmp (record.MountId, auxMounts.front()->MountId, sizeof (record.MountId)) != 0
+			|| record.Type != VolumeType::Normal || record.Type != volume.Type
+			|| record.Protection != VolumeProtection::None || record.Protection != volume.Protection
+			|| hostSize < TC_TOTAL_VOLUME_HEADERS_SIZE
+			|| record.DataOffset < TC_VOLUME_DATA_OFFSET
+			|| record.DataOffset > hostSize - TC_VOLUME_HEADER_GROUP_SIZE
+			|| record.DataSize != volume.Size
+			|| record.DataSize > hostSize - TC_VOLUME_HEADER_GROUP_SIZE - record.DataOffset)
+		{
+			throw TrimFailed (SRC_POS, L"TRIM_MOUNT_RECORD_INVALID");
+		}
+
+		return record;
+	}
+
+	bool CoreUnix::HostHeaderMatches (int fd, uint32 blockSize, const DeviceVolumeRecord &record)
+	{
+		Buffer sector (max (blockSize, (uint32) sizeof (record.Header)));
+		return pread (fd, sector, sector.Size(), 0) == (ssize_t) sector.Size()
+			&& memcmp (sector, record.Header, sizeof (record.Header)) == 0;
+	}
+
+	bool CoreUnix::IsTrimSupported (shared_ptr <VolumeInfo> mountedVolume, wstring &reason) const
+	{
+		if (!SupportsTrimAfterDismount())
+		{
+			reason = L"TRIM_NOT_SUPPORTED_ON_PLATFORM";
+			return false;
+		}
+
+		try
+		{
+			uint64 freeBytes;
+			// Legacy (V1) volumes are told apart as in VolumePropertiesDialog
+			if (!mountedVolume || mountedVolume->Type != VolumeType::Normal || mountedVolume->SystemEncryption || mountedVolume->MinRequiredProgramVersion < 0x10b)
+				reason = L"TRIM_UNSUPPORTED_VOLUME_TYPE";
+			else if (mountedVolume->Protection != VolumeProtection::None)
+				reason = L"TRIM_UNSUPPORTED_PROTECTION";
+			else if (!mountedVolume->Path.IsDevice())
+				reason = L"TRIM_UNSUPPORTED_HOST";
+			else
+			{
+				struct stat st;
+				// The record is written at mount; the elevated service checks it, this only spares
+				// a request that would be refused. GetDeviceHostedVolumeRecordPath throws TrimFailed
+				// for an unsupported device.
+				if (stat (GetDeviceHostedVolumeRecordPath (mountedVolume->Path).c_str(), &st) != 0)
+					reason = L"TRIM_NO_MOUNT_RECORD";
+				else if (mountedVolume->MountPoint.IsEmpty() || mountedVolume->VirtualDevice.IsEmpty())
+					reason = L"TRIM_FILESYSTEM_NO_TRIM";
+				else if (!IsExfatMounted (*mountedVolume, freeBytes))
+					reason = L"TRIM_UNSUPPORTED_FILESYSTEM";
+				else
+					return true;
+			}
+		}
+		catch (TrimFailed &e)
+		{
+			reason = e.GetSubject();
+		}
+
+		return false;
+	}
+
+	// Discard requests stay modest for USB bridges: at most 1 GiB per extent and 256 extents per request
+	static const uint64 MaxTrimExtentLength = 1ULL << 30;
+	static const size_t MaxTrimExtentsPerRequest = 256;
+
+	uint64 CoreUnix::DismountVolumeAndTrim (shared_ptr <VolumeInfo> mountedVolume, wstring &skipReason)
+	{
+		skipReason.clear();
+
+		// Everything up to the filesystem unmount runs before anything changes; the volume
+		// stays mounted when a check fails. Free space of a normal volume maps linearly onto
+		// the host device. The allocation bitmap is read once the virtual device is detached,
+		// when nothing can write to the filesystem any more, so the free clusters it shows
+		// can be discarded on the host after the volume is dismounted.
+		if (!mountedVolume)
+			throw ParameterIncorrect (SRC_POS);
+
+		shared_ptr <VolumeInfo> current = GetMountedVolume (mountedVolume->Path);
+		if (!current || current->SerialInstanceNumber != mountedVolume->SerialInstanceNumber || current->AuxMountPoint != mountedVolume->AuxMountPoint)
+			throw TrimFailed (SRC_POS, L"TRIM_VOLUME_CHANGED");
+		mountedVolume = current;
+
+		wstring reason;
+		if (!IsTrimSupported (mountedVolume, reason))
+			throw TrimFailed (SRC_POS, reason);
+
+		// The filesystem driver's own count of free space, to cross-check the parser later
+		uint64 driverFreeBytes;
+		if (!IsExfatMounted (*mountedVolume, driverFreeBytes))
+			throw TrimFailed (SRC_POS, L"TRIM_UNSUPPORTED_FILESYSTEM");
+
+		const string hostDevice = GetTrimDevicePath (mountedVolume->Path);
+		const string virtualDevice = GetTrimDevicePath (mountedVolume->VirtualDevice);
+		const uint64 dataSize = mountedVolume->Size;
+		uint64 hostSize;
+		uint32 hostBlockSize;
+		DeviceVolumeRecord record;
+		{
+			int fd = OpenTrimDevice (hostDevice, false, hostSize, hostBlockSize);
+			finally_do_arg (int, fd, { close (finally_arg); });
+
+			if (!TrimDeviceSupportsDiscard (fd, hostDevice))
+				throw TrimFailed (SRC_POS, L"TRIM_HOST_DEVICE_UNSUPPORTED");
+
+			record = ReadDeviceHostedVolumeRecord (*mountedVolume, hostSize);
+			if (!HostHeaderMatches (fd, hostBlockSize, record))
+				throw TrimFailed (SRC_POS, L"TRIM_HOST_DEVICE_CHANGED");
+		}
+
+		// Unmount only the filesystem; the virtual device stays attached for the check.
+		// A busy filesystem fails here and nothing changes.
+		try
+		{
+			DismountFilesystem (mountedVolume->MountPoint, false);
+		}
+		catch (ExecutedProcessFailed &e)
+		{
+			if (e.GetErrorOutput().find ("busy") != string::npos)
+				throw MountedVolumeInUse (SRC_POS);
+			throw;
+		}
+		sync();
+
+		// From here on the volume gets dismounted in any case; TRIM runs only if every check
+		// passes. The filesystem check is a hard precondition: it finds an allocation bitmap
+		// that disagrees with the directory tree, which neither the parser nor the free space
+		// cross-check can see. Any problem reported, a missing checker, a crash or a timeout
+		// skips TRIM. Only the exit code is logged, as the output can name files.
+		try
+		{
+			CheckExfatFilesystem (virtualDevice);
+		}
+		catch (ExecutedProcessFailed &e)
+		{
+			SystemLog::WriteError ("The exFAT check of " + virtualDevice + " failed with exit code " + StringConverter::ToSingle (e.GetExitCode()));
+			skipReason = L"TRIM_FILESYSTEM_CHECK_FAILED";
+		}
+		catch (exception &e)
+		{
+			SystemLog::WriteException (e);
+			skipReason = L"TRIM_FILESYSTEM_CHECK_FAILED";
+		}
+		catch (...)
+		{
+			skipReason = L"TRIM_FILESYSTEM_CHECK_FAILED";
+		}
+
+		// The check can take minutes, during which the virtual device may have been mounted
+		// again and written to; the dismount below would unmount that silently
+		if (skipReason.empty() && !GetMountedFilesystems (mountedVolume->VirtualDevice).empty())
+			skipReason = L"TRIM_VOLUME_REMOUNTED";
+
+		// Reads the free ranges from the volume image, which the mount service still serves
+		// after the virtual device is detached. Any failure only skips TRIM.
+		vector <ExfatRange> freeRanges;
+		bool freeRangesRead = false;
+		DetachedVolumeHandler readFreeRanges = [&] (const VolumeInfo &volume)
+		{
+			if (!skipReason.empty())
+				return;
+			freeRangesRead = true;
+
+			try
+			{
+				const string image = string (volume.AuxMountPoint) + FuseService::GetVolumeImagePath();
+				int fd = open (image.c_str(), O_RDONLY | O_NOFOLLOW);
+				throw_sys_sub_if (fd == -1, StringConverter::ToWide (image));
+				finally_do_arg (int, fd, { close (finally_arg); });
+
+				struct stat st;
+				throw_sys_sub_if (fstat (fd, &st) == -1, StringConverter::ToWide (image));
+				if (!S_ISREG (st.st_mode) || (uint64) st.st_size != dataSize)
+					throw TrimFailed (SRC_POS, L"TRIM_VOLUME_SIZE_MISMATCH");
+
+				freeRanges = GetExfatFreeRanges ([fd] (uint64 offset, const BufferPtr &buffer)
+				{
+					if (pread (fd, buffer, buffer.Size(), offset) != (ssize_t) buffer.Size())
+						throw TrimFailed (SRC_POS, L"TRIM_IMAGE_UNREADABLE");
+				}, dataSize);
+
+				uint64 freeBytes = 0;
+				for (const ExfatRange &range : freeRanges)
+					freeBytes += range.Length;
+
+				// Guards against the parser over-reporting free space only. The driver takes
+				// its count from the same bitmap, so a bitmap inconsistent with the directory
+				// tree passes here; that is what the filesystem check above is for.
+				if (freeBytes > driverFreeBytes)
+					throw TrimFailed (SRC_POS, L"TRIM_FREE_SPACE_MISMATCH");
+			}
+			catch (TrimFailed &e)
+			{
+				skipReason = e.GetSubject();
+			}
+			catch (exception &e)
+			{
+				skipReason = StringConverter::ToExceptionString (e);
+			}
+			catch (...)
+			{
+				skipReason = L"TRIM_IMAGE_UNREADABLE";
+			}
+
+			if (!skipReason.empty())
+				freeRanges.clear();
+		};
+
+		// A failure from here on leaves the filesystem unmounted but the volume attached
+		try
+		{
+			mountedVolume = DetachVolume (mountedVolume, false, false, readFreeRanges);
+		}
+		catch (MountedVolumeInUse &)
+		{
+			throw TrimDismountFailed (SRC_POS, L"TRIM_VOLUME_IN_USE");
+		}
+		catch (exception &e)
+		{
+			throw TrimDismountFailed (SRC_POS, StringConverter::ToExceptionString (e));
+		}
+		CompleteDismount (mountedVolume);
+
+		if (skipReason.empty() && !freeRangesRead)
+			skipReason = L"TRIM_IMAGE_UNREADABLE";
+		if (!skipReason.empty())
+			return 0;
+
+		uint64 size;
+		uint32 blockSize;
+		int fd = OpenTrimDevice (hostDevice, true, size, blockSize);
+		finally_do_arg (int, fd, { close (finally_arg); });
+
+		// The device is checked again on the descriptor that the discards go to
+		if (size != hostSize || blockSize != hostBlockSize || !HostHeaderMatches (fd, blockSize, record))
+		{
+			skipReason = L"TRIM_HOST_DEVICE_CHANGED";
+			return 0;
+		}
+
+		FlushTrimDevice (fd);
+
+		vector <ExfatRange> extents;
+		uint64 trimmedBytes = 0;
+
+		auto discard = [&] ()
+		{
+			if (extents.empty())
+				return;
+
+			DiscardTrimExtents (fd, hostDevice, extents);
+			for (const ExfatRange &extent : extents)
+				trimmedBytes += extent.Length;
+			extents.clear();
+		};
+
+		try
+		{
+			for (const ExfatRange &range : freeRanges)
+			{
+				// Host offset = data area offset + filesystem offset, kept inside the data area
+				// (which excludes both header groups) and rounded inwards to whole host blocks
+				uint64 start = record.DataOffset + range.Offset;
+				uint64 end = min (start + range.Length, record.DataOffset + dataSize);
+				start = (start + blockSize - 1) / blockSize * blockSize;
+				end = end / blockSize * blockSize;
+
+				while (start < end)
+				{
+					ExfatRange extent = { start, min (end - start, MaxTrimExtentLength) };
+					extents.push_back (extent);
+					start += extent.Length;
+
+					if (extents.size() == MaxTrimExtentsPerRequest)
+						discard();
+				}
+			}
+
+			discard();
+		}
+		catch (SystemException &e)
+		{
+			// The volume is already dismounted; report how much was discarded before the failure
+			SystemLog::WriteException (e);
+			skipReason = L"TRIM_UNMAP_FAILED";
+		}
+
+		FlushTrimDevice (fd);
+
+		return trimmedBytes;
+	}
+
 	shared_ptr <VolumeInfo> CoreUnix::DismountVolume (shared_ptr <VolumeInfo> mountedVolume, bool ignoreOpenFiles, bool syncVolumeInfo)
+	{
+		mountedVolume = DetachVolume (mountedVolume, ignoreOpenFiles, syncVolumeInfo, DetachedVolumeHandler());
+		CompleteDismount (mountedVolume);
+		return mountedVolume;
+	}
+
+	void CoreUnix::CompleteDismount (shared_ptr <VolumeInfo> mountedVolume)
+	{
+		if (mountedVolume->Path.IsDevice())
+			RemoveDeviceHostedVolumeRecord (mountedVolume->Path);
+
+		VolumeEventArgs eventArgs (mountedVolume);
+		VolumeDismountedEvent.Raise (eventArgs);
+	}
+
+	shared_ptr <VolumeInfo> CoreUnix::DetachVolume (shared_ptr <VolumeInfo> mountedVolume, bool ignoreOpenFiles, bool syncVolumeInfo, const DetachedVolumeHandler &onDetached)
 	{
 		if (!mountedVolume->MountPoint.IsEmpty())
 		{
@@ -327,6 +770,9 @@ namespace VeraCrypt
 				mountedVolume = ml.front();
 		}
 
+		if (onDetached)
+			onDetached (*mountedVolume);
+
 		list <string> args;
 		args.push_back ("--");
 		args.push_back (mountedVolume->AuxMountPoint);
@@ -355,9 +801,6 @@ namespace VeraCrypt
 			mountedVolume->AuxMountPoint.Delete();
 		}
 		catch (...)	{ }
-
-		VolumeEventArgs eventArgs (mountedVolume);
-		VolumeDismountedEvent.Raise (eventArgs);
 
 		return mountedVolume;
 	}
@@ -481,9 +924,7 @@ namespace VeraCrypt
 		if (firstException.get())
 			firstException->Throw();
 
-		VolumeEventArgs eventArgs (mountedVolume);
-		VolumeDismountedEvent.Raise (eventArgs);
-
+		CompleteDismount (mountedVolume);
 		return mountedVolume;
 	}
 #endif
@@ -1337,6 +1778,9 @@ namespace VeraCrypt
 			throw;
 		}
 
+		if (options.Path->IsDevice())
+			RecordDeviceHostedVolume (*volume, fuseMountPoint);
+
 		DevicePath mountedVirtualDevice;
 
 		try
@@ -1502,6 +1946,9 @@ namespace VeraCrypt
 					DismountVolume (mountedVolume);
 			}
 			catch (...) { }
+			// The volume may be gone before it is found, with its record left behind
+			if (options.Path->IsDevice())
+				RemoveDeviceHostedVolumeRecord (*options.Path);
 #endif
 			throw;
 		}

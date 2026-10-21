@@ -1705,6 +1705,31 @@
     <entry lang="it" key="VOLUME_DISCOVERY_PARTIAL">Alcune informazioni sul volume non sono disponibili; nuovo tentativo in corso...</entry>
     <entry lang="it" key="LINUX_ELEVATION_BLOCKED">L'attuale launcher o sandbox impedisce a VeraCrypt di ottenere i privilegi di amministratore (Linux NoNewPrivs).\n\nChiudere VeraCrypt e avviarlo al di fuori di questo ambiente limitato. Su NixOS, usare il pacchetto VeraCrypt nativo invece di appimage-run.</entry>
     <entry lang="it" key="LINUX_REQUESTER_BACKED_VOLUME">VeraCrypt non è riuscito ad aprire il file del volume con i privilegi di amministratore, quindi lo ha aperto con i diritti di accesso dell'account utente corrente:\n{0}\n\nMantenere montata la condivisione di origine e attiva la sessione utente finché questo volume VeraCrypt non viene smontato. Espellere la condivisione o terminare la sessione può causare la perdita di dati. Per un uso regolare, salvare il volume in una posizione in cui VeraCrypt possa aprirlo con i privilegi di amministratore, ad esempio su una condivisione montata con il client CIFS del kernel.</entry>
+    <entry lang="en" key="TRIM_UNMOUNT_BUTTON">Unmount with TRIM</entry>
+    <entry lang="en" key="TRIM_CONFIRM">Unmount {0} and TRIM its free space on the host device?\n\nAfterwards the drive, and anyone examining it, can tell which parts of the volume hold no data. If this volume contains a hidden volume, the hidden volume will be destroyed.</entry>
+    <entry lang="en" key="TRIM_DONE">{0} was unmounted and {1} of free space was trimmed.</entry>
+    <entry lang="en" key="TRIM_SKIPPED">{0} was unmounted, but its free space was not trimmed:\n{1}</entry>
+    <entry lang="en" key="TRIM_PARTIAL">{0} was unmounted, but only {2} of its free space was trimmed:\n{1}</entry>
+    <entry lang="en" key="TRIM_NOT_PERFORMED">TRIM was not performed and the volume is still mounted.</entry>
+    <entry lang="en" key="TRIM_VOLUME_IN_USE">The volume contains files or directories that are in use.</entry>
+    <entry lang="en" key="TRIM_NOT_SUPPORTED_ON_PLATFORM">Unmounting with TRIM is not supported on this platform.</entry>
+    <entry lang="en" key="TRIM_UNSUPPORTED_VOLUME_TYPE">Only normal (non-hidden) volumes in the current volume format can be trimmed.</entry>
+    <entry lang="en" key="TRIM_UNSUPPORTED_PROTECTION">The volume is mounted read-only or with hidden volume protection.</entry>
+    <entry lang="en" key="TRIM_UNSUPPORTED_HOST">Only volumes hosted on a partition or disk device can be trimmed, not file containers.</entry>
+    <entry lang="en" key="TRIM_UNSUPPORTED_FILESYSTEM">Only exFAT filesystems can be trimmed.</entry>
+    <entry lang="en" key="TRIM_FILESYSTEM_NO_TRIM">The volume has no mounted filesystem that supports TRIM.</entry>
+    <entry lang="en" key="TRIM_HOST_DEVICE_UNSUPPORTED">The host device does not support TRIM.</entry>
+    <entry lang="en" key="TRIM_NO_MOUNT_RECORD">No mount record exists for the host device. The volume must have been mounted with administrator privileges to be trimmed.</entry>
+    <entry lang="en" key="TRIM_MOUNT_RECORD_INVALID">The mount record of the host device is invalid.</entry>
+    <entry lang="en" key="TRIM_HOST_DEVICE_CHANGED">The host device no longer holds the volume that was mounted.</entry>
+    <entry lang="en" key="TRIM_FILESYSTEM_CHECK_FAILED">The exFAT filesystem check reported problems or could not be run. Repair the filesystem before trimming it.</entry>
+    <entry lang="en" key="TRIM_UNMAP_FAILED">The host device rejected a TRIM request.</entry>
+    <entry lang="en" key="TRIM_VOLUME_CHANGED">The mounted volume has changed since it was selected. Refresh the volume list and try again.</entry>
+    <entry lang="en" key="TRIM_VOLUME_REMOUNTED">The filesystem was mounted again while it was being checked.</entry>
+    <entry lang="en" key="TRIM_VOLUME_SIZE_MISMATCH">The size of the volume image differs from the size of the mounted volume.</entry>
+    <entry lang="en" key="TRIM_FREE_SPACE_MISMATCH">The allocation bitmap shows more free space than the filesystem driver reported.</entry>
+    <entry lang="en" key="TRIM_DISMOUNT_FAILED">The filesystem was unmounted, but the volume could not be dismounted and is still attached. TRIM was not performed.</entry>
+    <entry lang="en" key="TRIM_IMAGE_UNREADABLE">The volume image could not be read.</entry>
     <entry lang="en" key="TRIM_EXFAT_UNSUPPORTED">The exFAT filesystem has a structure that cannot be trimmed safely.</entry>
     <entry lang="it" key="PCSC_ERROR">Errore della smart card</entry>
   </localization>

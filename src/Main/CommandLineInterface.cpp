@@ -47,6 +47,7 @@ namespace VeraCrypt
 #ifdef TC_LINUX
 		ArgEmergencyUnmount (false),
 #endif
+		ArgTrim (false),
 		ArgFilesystem (VolumeCreationOptions::FilesystemType::Unknown),
 		ArgNewPim (-1),
 		ArgNoHiddenVolumeProtection (false),
@@ -85,6 +86,7 @@ namespace VeraCrypt
 #ifdef TC_LINUX
 		parser.AddSwitch (L"",	L"emergency-unmount",	_("Attempt emergency cleanup if normal Linux unmount fails"));
 #endif
+		parser.AddSwitch (L"",	L"trim",				_("Use with --unmount: TRIM free space of an exFAT volume on its host device"));
 		parser.AddSwitch (L"",	L"display-password",	_("Display password while typing"));
 		parser.AddOption (L"",	L"encryption",			_("Encryption algorithm"));
 		parser.AddSwitch (L"",	L"explore",				_("Open explorer window for mounted volume"));
@@ -432,6 +434,7 @@ namespace VeraCrypt
 #ifdef TC_LINUX
 		ArgEmergencyUnmount = parser.Found (L"emergency-unmount");
 #endif
+		ArgTrim = parser.Found (L"trim");
 
 		ArgDisableFileSizeCheck = parser.Found (L"no-size-check");
 		ArgUseLegacyPassword = parser.Found (L"legacy-password-maxlength");
@@ -762,6 +765,14 @@ namespace VeraCrypt
 			}
 		}
 
+		if (ArgTrim)
+		{
+			if (ArgCommand != CommandId::DismountVolumes)
+				throw_err (L"--trim is supported only with an unmount command");
+			if (ArgForce)
+				throw_err (L"--trim cannot be combined with --force");
+		}
+
 		if (param1IsMountedVolumeSpec)
 			ArgVolumes = GetMountedVolumes (parser.GetParamCount() > 0 ? parser.GetParam (0) : wxString());
 
@@ -769,6 +780,8 @@ namespace VeraCrypt
 		if (ArgEmergencyUnmount && ArgCommand != CommandId::DismountVolumes)
 			throw_err (L"--emergency-unmount is supported only with an unmount command");
 #endif
+		if (ArgTrim && (parser.GetParamCount() == 0 || ArgVolumes.size() != 1))
+			throw_err (L"--trim requires exactly one mounted volume to be specified");
 
 		if (ArgCommand == CommandId::None && Application::GetUserInterfaceType() == UserInterfaceType::Text)
 			parser.Usage();

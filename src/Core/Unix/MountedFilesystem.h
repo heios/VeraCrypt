@@ -30,8 +30,11 @@ namespace VeraCrypt
 				&& (Type == "smbfs" || Type == "nfs" || Type == "macfuse" || Type == "osxfuse" || Type == "fusefs");
 		}
 		uid_t Owner;
-		int32 MountId[2];
+#else
+		MountedFilesystem () { MountId[0] = MountId[1] = 0; }
 #endif
+		// Filesystem identity (f_fsid) where the platform reports one, else zero
+		int32 MountId[2];
 		DevicePath Device;
 		DirectoryPath MountPoint;
 		string Type;

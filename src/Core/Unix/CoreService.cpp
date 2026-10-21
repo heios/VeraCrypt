@@ -1268,6 +1268,16 @@ namespace VeraCrypt
 						continue;
 					}
 
+					// DismountVolumeAndTrimRequest
+					DismountVolumeAndTrimRequest *trimRequest = dynamic_cast <DismountVolumeAndTrimRequest*> (request.get());
+					if (trimRequest)
+					{
+						DismountVolumeAndTrimResponse response;
+						response.TrimmedBytes = Core->DismountVolumeAndTrim (trimRequest->MountedVolumeInfo, response.SkipReason);
+						response.Serialize (outputStream);
+						continue;
+					}
+
 #ifdef TC_LINUX
 					// EmergencyDismountVolumeRequest
 					EmergencyDismountVolumeRequest *emergencyDismountRequest = dynamic_cast <EmergencyDismountVolumeRequest*> (request.get());
@@ -1402,6 +1412,14 @@ namespace VeraCrypt
 	{
 		DismountVolumeRequest request (mountedVolume, ignoreOpenFiles, syncVolumeInfo);
 		return SendRequest <DismountVolumeResponse> (request)->DismountedVolumeInfo;
+	}
+
+	uint64 CoreService::RequestDismountVolumeAndTrim (shared_ptr <VolumeInfo> mountedVolume, wstring &skipReason)
+	{
+		DismountVolumeAndTrimRequest request (mountedVolume);
+		shared_ptr <DismountVolumeAndTrimResponse> response = SendRequest <DismountVolumeAndTrimResponse> (request);
+		skipReason = response->SkipReason;
+		return response->TrimmedBytes;
 	}
 
 #ifdef TC_LINUX
