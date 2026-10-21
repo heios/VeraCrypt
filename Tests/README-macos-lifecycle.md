@@ -54,6 +54,11 @@ runs `macos_cleanup_state_test.cpp` against the real serialization code to
 check that cleanup failure details survive IPC and that local display state
 leaves the legacy `/control` bytes unchanged.
 
+`exfat_free_space_test.cpp` checks the exFAT free-space parser used by "Unmount
+with TRIM" (`make -C src test-exfat`, no root): a synthetic image with a known
+bitmap, damaged copies that must be refused, and on macOS images formatted with
+newfs_exfat compared against statfs. Images given as arguments must be refused.
+
 These tests exercise state and serialization contracts. They do not establish
 real backend timing, GUI rendering, or filesystem behavior under forced unmount.
 
