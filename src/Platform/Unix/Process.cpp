@@ -32,10 +32,15 @@
 #include "Platform/StringConverter.h"
 #include "Platform/Unix/Pipe.h"
 #include "Platform/Unix/Poller.h"
-#ifdef TC_MACOSX
+#if defined (TC_MACOSX) || defined (TC_LINUX)
 #include <chrono>
 #include <poll.h>
 #include <signal.h>
+#endif
+#ifdef TC_LINUX
+#include <sys/syscall.h>
+#endif
+#ifdef TC_MACOSX
 #include <spawn.h>
 #include <crt_externs.h>
 #include <libproc.h>
@@ -62,7 +67,9 @@ namespace VeraCrypt
 		// identified replacement proves that the captured instance has exited.
 		return !expectedStartTime || !startTime || startTime == expectedStartTime;
 	}
+#endif
 
+#if defined (TC_MACOSX) || defined (TC_LINUX)
 	// Bounded children that survived SIGKILL, such as a child in uninterruptible
 	// sleep. Later calls reap them and start no new child until then, so repeated
 	// timeouts cannot accumulate stuck children or zombies. Never destroyed: a
@@ -109,6 +116,14 @@ namespace VeraCrypt
 		for (int i = 0; i < 4; i += 2)
 			throw_sys_if (fcntl (descriptors[i], F_SETFL, O_NONBLOCK) == -1);
 
+		vector <char *> args;
+		args.push_back (const_cast <char *> (processName.c_str()));
+		for (const string &argument : arguments)
+			args.push_back (const_cast <char *> (argument.c_str()));
+		args.push_back (nullptr);
+		pid_t child;
+
+#ifdef TC_MACOSX
 		posix_spawn_file_actions_t actions;
 		int error = posix_spawn_file_actions_init (&actions);
 		if (error) throw SystemException (SRC_POS, error);
@@ -125,14 +140,31 @@ namespace VeraCrypt
 			|| (error = posix_spawn_file_actions_adddup2 (&actions, descriptors[3], STDERR_FILENO)))
 			throw SystemException (SRC_POS, error);
 
-		vector <char *> args;
-		args.push_back (const_cast <char *> (processName.c_str()));
-		for (const string &argument : arguments)
-			args.push_back (const_cast <char *> (argument.c_str()));
-		args.push_back (nullptr);
-		pid_t child;
 		error = posix_spawn (&child, processName.c_str(), &actions, &attributes, &args[0], *_NSGetEnviron());
 		if (error) throw SystemException (SRC_POS, error);
+#else
+		// posix_spawn cannot close inherited descriptors before glibc 2.34. The forked child of a possibly
+		// multithreaded process makes only async-signal-safe calls before exec.
+		const long maxDescriptor = sysconf (_SC_OPEN_MAX);
+		child = fork();
+		throw_sys_if (child == -1);
+		if (child == 0)
+		{
+			int nullDescriptor = open ("/dev/null", O_RDONLY);
+			if (nullDescriptor == -1 || dup2 (nullDescriptor, STDIN_FILENO) == -1
+				|| dup2 (descriptors[1], STDOUT_FILENO) == -1 || dup2 (descriptors[3], STDERR_FILENO) == -1)
+				_exit (127);
+
+#ifdef SYS_close_range
+			if (syscall (SYS_close_range, STDERR_FILENO + 1, ~0U, 0) != 0)
+#endif
+				for (long fd = STDERR_FILENO + 1; fd < maxDescriptor; ++fd)
+					close ((int) fd);
+
+			execv (args[0], &args[0]);
+			_exit (127);
+		}
+#endif
 		finally_do_arg (pid_t *, &child, {
 			if (*finally_arg > 0)
 			{
@@ -159,22 +191,40 @@ namespace VeraCrypt
 		close (descriptors[3]); descriptors[3] = -1;
 		struct pollfd fds[2] = { { descriptors[0], POLLIN, 0 }, { descriptors[2], POLLIN, 0 } };
 		string output[2];
+
+		// Reads what is available; false once the pipe is empty or closed
+		auto readOutput = [&] (int i) -> bool
+		{
+			char buffer[8192];
+			ssize_t count = read (fds[i].fd, buffer, sizeof (buffer));
+			if (count > 0)
+			{
+				if (static_cast <size_t> (count) > outputLimit - output[0].size() - output[1].size())
+					throw ParameterTooLarge (SRC_POS);
+				output[i].append (buffer, count);
+				return true;
+			}
+			if (count == 0) fds[i].fd = -1;
+			else if (errno == EINTR) return true;
+			else if (errno != EAGAIN) throw SystemException (SRC_POS);
+			return false;
+		};
+
 		int status = 0;
 		int exitPoll = 1;
-		while (child > 0 || fds[0].fd != -1 || fds[1].fd != -1)
+		while (true)
 		{
-			if (child > 0)
+			pid_t waited = waitpid (child, &status, WNOHANG);
+			if (waited == child)
 			{
-				pid_t waited = waitpid (child, &status, WNOHANG);
-				if (waited == child) child = -1;
-				else if (waited == -1 && errno != EINTR)
-				{
-					if (errno == ECHILD) child = -1;
-					throw SystemException (SRC_POS);
-				}
-			}
-			if (child == -1 && fds[0].fd == -1 && fds[1].fd == -1)
+				child = -1;
 				break;
+			}
+			if (waited == -1 && errno != EINTR)
+			{
+				if (errno == ECHILD) child = -1;
+				throw SystemException (SRC_POS);
+			}
 			auto remaining = chrono::duration_cast <chrono::milliseconds> (deadline - chrono::steady_clock::now()).count();
 			if (remaining <= 0) throw TimeOut (SRC_POS, StringConverter::ToWide (processName));
 			int pollTimeout = static_cast <int> (remaining < 50 ? remaining : 50);
@@ -190,18 +240,23 @@ namespace VeraCrypt
 			throw_sys_if (result == -1);
 			for (int i = 0; i < 2; ++i)
 			{
-				if (fds[i].fd == -1 || !fds[i].revents) continue;
-				char buffer[8192];
-				ssize_t count = read (fds[i].fd, buffer, sizeof (buffer));
-				if (count > 0)
-				{
-					if (static_cast <size_t> (count) > outputLimit - output[0].size() - output[1].size())
-						throw ParameterTooLarge (SRC_POS);
-					output[i].append (buffer, count);
-				}
-				else if (count == 0) fds[i].fd = -1;
-				else if (errno != EINTR && errno != EAGAIN) throw SystemException (SRC_POS);
+				if (fds[i].fd != -1 && fds[i].revents)
+					readOutput (i);
 			}
+		}
+
+		// The pipes now hold all output of the child. A process it left behind may keep them
+		// open, so read what is there rather than wait for the end of file.
+		for (int i = 0; i < 2; ++i)
+		{
+			while (fds[i].fd != -1 && readOutput (i)) { }
+		}
+
+		if (!WIFEXITED (status))
+		{
+			if (!output[1].empty() && output[1][output[1].size() - 1] != '\n')
+				output[1] += '\n';
+			output[1] += "Terminated by signal " + StringConverter::ToSingle (static_cast <int32> (WTERMSIG (status)));
 		}
 		int exitCode = WIFEXITED (status) ? WEXITSTATUS (status) : 1;
 		if (exitCode != 0)

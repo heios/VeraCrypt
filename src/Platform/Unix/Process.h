@@ -37,7 +37,9 @@ namespace VeraCrypt
 #ifdef TC_MACOSX
 		static uint64 GetProcessStartTime (pid_t processId);
 		static bool IsProcessRunning (pid_t processId, uint64 expectedStartTime = 0);
-		// For read-only discovery only: a deadline aborts and reaps the child.
+#endif
+#if defined (TC_MACOSX) || defined (TC_LINUX)
+		// For read-only discovery only: a deadline or the output limit aborts and kills the child.
 		static string ExecuteBounded (const string &processName, const list <string> &arguments, int timeOut, size_t outputLimit = 16 * 1024 * 1024);
 #endif
 #if defined(TC_LINUX)
