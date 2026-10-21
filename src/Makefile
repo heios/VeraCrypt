@@ -724,7 +724,8 @@ endif
 install:
 	$(MAKE) -C Main -f Main.make NAME=Main install
 
-# Parser test for TRIM after unmount (Tests/exfat_free_space_test.cpp); no root
+# Parser test for TRIM after unmount (Tests/exfat_free_space_test.cpp): synthetic images, plus
+# mkfs.exfat images on macOS and, as root, on Linux
 .PHONY: test-exfat
 test-exfat:
 	$(MAKE) -C Platform -f Platform.make NAME=Platform

@@ -7,10 +7,10 @@
 
 // Checks src/Core/Unix/ExfatFreeSpace.h. Builds a small exFAT image in memory with
 // a known allocation bitmap, checks the free ranges the parser returns, then damages
-// copies of the image and checks that each one is refused. On macOS it also formats
-// a disk image with newfs_exfat, writes marked files, deletes half of them, and
-// compares the parsed free space with statfs and with where the markers ended up.
-// No root.
+// copies of the image and checks that each one is refused. On macOS (newfs_exfat, no
+// root) and Linux (mkfs.exfat from exfatprogs, as root) it also formats a disk image,
+// writes marked files, deletes half of them, and compares the parsed free space with
+// statfs and with where the markers ended up.
 //
 //   c++ -std=c++11 -Wall -I src -o /tmp/exfat_test Tests/exfat_free_space_test.cpp src/Platform/Platform.a && /tmp/exfat_test [image ...]
 //
@@ -27,11 +27,14 @@
 #include <sys/stat.h>
 #ifdef __APPLE__
 #include <sys/mount.h>
+#elif defined (__linux__)
+#include <sys/random.h>
+#include <sys/vfs.h>
 #endif
 
 using namespace VeraCrypt;
 
-static string AttachedDevice;
+static string AttachedDevice;	// the mount point on Linux
 static string TempDir;
 static const string TempDirPrefix = "/tmp/exfattest.";
 
@@ -51,7 +54,11 @@ static void Check (bool ok, const string &what)
 
 	fprintf (stderr, "FAIL: %s\n", what.c_str());
 	if (!AttachedDevice.empty())
+#ifdef __APPLE__
 		system (("hdiutil detach -force " + AttachedDevice + " >/dev/null").c_str());
+#else
+		system (("umount " + AttachedDevice).c_str());
+#endif
 	RemoveTempDir();
 	exit (1);
 }
@@ -136,7 +143,8 @@ static void TestDamagedImages (const vector <uint8_t> &img)
 
 	// Root directory entries of the bitmap and the up-case table (first root cluster)
 	size_t bitmapEntry = 0, upcaseEntry = 0;
-	for (size_t i = clusterOffset (rootCluster); img[i] != 0; i += 32)
+	const uint64_t rootOffset = clusterOffset (rootCluster);
+	for (size_t i = rootOffset; i < rootOffset + (1ULL << clusterShift) && img[i] != 0; i += 32)
 	{
 		if (img[i] == 0x81)
 			bitmapEntry = i;
@@ -282,7 +290,7 @@ static void TestSyntheticImage ()
 	puts ("synthetic image ok");
 }
 
-#ifdef __APPLE__
+#if defined (__APPLE__) || defined (__linux__)
 
 static string Run (const string &command)
 {
@@ -293,6 +301,15 @@ static string Run (const string &command)
 		out.append (buf, n);
 	Check (pclose (p) == 0, command + ":\n" + out);
 	return out;
+}
+
+static void RandomBytes (void *buf, size_t size)
+{
+#ifdef __APPLE__
+	arc4random_buf (buf, size);
+#else
+	Check (getrandom (buf, size, 0) == (ssize_t) size, "getrandom");
+#endif
 }
 
 static void TestClusterSize (const string &clusterSize)
@@ -308,15 +325,21 @@ static void TestClusterSize (const string &clusterSize)
 	Check (fd != -1 && ftruncate (fd, 300 << 20) == 0, "create image");
 	close (fd);
 
+#ifdef __APPLE__
 	string attached = Run ("hdiutil attach -imagekey diskimage-class=CRawDiskImage -nomount " + image);
 	attached.erase (0, attached.find ("/dev/disk"));
 	AttachedDevice = attached.substr (0, attached.find_first_of (" \t\n"));
 	Run ("newfs_exfat -R -b " + clusterSize + " /dev/r" + AttachedDevice.substr (5));
 	Run ("diskutil mount -mountPoint " + mnt + " " + AttachedDevice);
+#else
+	Run ("mkfs.exfat -q -c " + clusterSize + " " + image);
+	Run ("mount -t exfat -o loop " + image + " " + mnt);
+	AttachedDevice = mnt;
+#endif
 
 	// Every 4 KiB block of every file starts with: token, file index, block index
 	uint8_t token[16];
-	arc4random_buf (token, sizeof (token));
+	RandomBytes (token, sizeof (token));
 	for (int i = 0; i < files; ++i)
 	{
 		const string path = mnt + "/f" + std::to_string (i);
@@ -324,14 +347,18 @@ static void TestClusterSize (const string &clusterSize)
 		for (int b = 0; b < (i + 1) * 16; ++b)
 		{
 			vector <uint8_t> data (block);
-			arc4random_buf (data.data(), data.size());
+			RandomBytes (data.data(), data.size());
 			memcpy (&data[0], token, 16);
 			memcpy (&data[16], &i, 4);
 			memcpy (&data[20], &b, 4);
 			fwrite (data.data(), 1, data.size(), f);
 		}
 		fflush (f);
+#ifdef __APPLE__
 		fcntl (fileno (f), F_FULLFSYNC);
+#else
+		fsync (fileno (f));
+#endif
 		fclose (f);
 	}
 
@@ -339,15 +366,23 @@ static void TestClusterSize (const string &clusterSize)
 		unlink ((mnt + "/f" + std::to_string (i)).c_str());
 	sync();
 
+#ifdef __APPLE__
 	// Unmounting writes metadata (.fseventsd), so take statfs from a read-only remount
 	Run ("diskutil unmount " + AttachedDevice);
 	Run ("diskutil mount readOnly -mountPoint " + mnt + " " + AttachedDevice);
+#else
+	Run ("mount -o remount,ro " + mnt);
+#endif
 
 	struct statfs st;
 	Check (statfs (mnt.c_str(), &st) == 0, "statfs");
 	const uint64_t statfsFree = (uint64_t) st.f_bfree * st.f_bsize;
 
+#ifdef __APPLE__
 	Run ("hdiutil detach " + AttachedDevice);
+#else
+	Run ("umount " + mnt);
+#endif
 	AttachedDevice.clear();
 
 	vector <uint8_t> img (300 << 20);
@@ -409,7 +444,7 @@ static void TestClusterSize (const string &clusterSize)
 	RemoveTempDir();
 }
 
-#endif // __APPLE__
+#endif // __APPLE__ || __linux__
 
 int main (int argc, char **argv)
 {
@@ -420,6 +455,14 @@ int main (int argc, char **argv)
 #ifdef __APPLE__
 		TestClusterSize ("4096");   // multi-cluster bitmap and FAT chain
 		TestClusterSize ("131072");
+#elif defined (__linux__)
+		if (geteuid() == 0)
+		{
+			TestClusterSize ("4096");
+			TestClusterSize ("131072");
+		}
+		else
+			puts ("mkfs.exfat images skipped, mounting them needs root");
 #endif
 
 		for (int i = 1; i < argc; ++i)
