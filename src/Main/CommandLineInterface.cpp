@@ -86,7 +86,7 @@ namespace VeraCrypt
 #ifdef TC_LINUX
 		parser.AddSwitch (L"",	L"emergency-unmount",	_("Attempt emergency cleanup if normal Linux unmount fails"));
 #endif
-		parser.AddSwitch (L"",	L"trim",				_("Use with --unmount: TRIM free space of an exFAT volume on its host device"));
+		parser.AddSwitch (L"",	L"trim",				_("Use with --unmount: TRIM free space of a volume on its host device"));
 		parser.AddSwitch (L"",	L"display-password",	_("Display password while typing"));
 		parser.AddOption (L"",	L"encryption",			_("Encryption algorithm"));
 		parser.AddSwitch (L"",	L"explore",				_("Open explorer window for mounted volume"));

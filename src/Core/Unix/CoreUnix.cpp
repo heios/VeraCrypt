@@ -311,7 +311,7 @@ namespace VeraCrypt
 		return -1;
 	}
 
-	void CoreUnix::RecordDeviceHostedVolume (const Volume &volume, const DirectoryPath &auxMountPoint) const
+	void CoreUnix::RecordDeviceHostedVolume (const Volume &volume, const DirectoryPath &auxMountPoint, uint64 serialInstanceNumber) const
 	{
 		// Only a normal volume without protection in the current format can be trimmed; a
 		// legacy (V1) volume keeps its data right behind a 512-byte header
@@ -337,6 +337,7 @@ namespace VeraCrypt
 				return;
 			}
 			memcpy (record.MountId, auxMounts.front()->MountId, sizeof (record.MountId));
+			record.SerialInstanceNumber = serialInstanceNumber;
 
 			Buffer sector (volume.GetSectorSize());
 			if (volume.GetFile()->ReadAt (sector, 0) != sector.Size())
@@ -406,6 +407,7 @@ namespace VeraCrypt
 		if (fstat (fd, &st) == -1 || !S_ISREG (st.st_mode) || st.st_uid != 0 || (st.st_mode & (S_IRWXG | S_IRWXO))
 			|| st.st_size != (off_t) sizeof (record) || read (fd, &record, sizeof (record)) != (ssize_t) sizeof (record)
 			|| memcmp (record.MountId, auxMounts.front()->MountId, sizeof (record.MountId)) != 0
+			|| record.SerialInstanceNumber != volume.SerialInstanceNumber
 			|| record.Type != VolumeType::Normal || record.Type != volume.Type
 			|| record.Protection != VolumeProtection::None || record.Protection != volume.Protection
 			|| hostSize < TC_TOTAL_VOLUME_HEADERS_SIZE
@@ -426,6 +428,13 @@ namespace VeraCrypt
 		return pread (fd, sector, sector.Size(), 0) == (ssize_t) sector.Size()
 			&& memcmp (sector, record.Header, sizeof (record.Header)) == 0;
 	}
+
+#ifdef TC_LINUX
+	// With kernel cryptographic services, CoreLinux trims other filesystems as well
+	static const wchar_t TrimUnsupportedFilesystem[] = L"LINUX_TRIM_UNSUPPORTED_FILESYSTEM";
+#else
+	static const wchar_t TrimUnsupportedFilesystem[] = L"TRIM_UNSUPPORTED_FILESYSTEM";
+#endif
 
 	bool CoreUnix::IsTrimSupported (shared_ptr <VolumeInfo> mountedVolume, wstring &reason) const
 	{
@@ -456,7 +465,7 @@ namespace VeraCrypt
 				else if (mountedVolume->MountPoint.IsEmpty() || mountedVolume->VirtualDevice.IsEmpty())
 					reason = L"TRIM_FILESYSTEM_NO_TRIM";
 				else if (!IsExfatMounted (*mountedVolume, freeBytes))
-					reason = L"TRIM_UNSUPPORTED_FILESYSTEM";
+					reason = TrimUnsupportedFilesystem;
 				else
 					return true;
 			}
@@ -497,7 +506,7 @@ namespace VeraCrypt
 		// The filesystem driver's own count of free space, to cross-check the parser later
 		uint64 driverFreeBytes;
 		if (!IsExfatMounted (*mountedVolume, driverFreeBytes))
-			throw TrimFailed (SRC_POS, L"TRIM_UNSUPPORTED_FILESYSTEM");
+			throw TrimFailed (SRC_POS, TrimUnsupportedFilesystem);
 
 		const string hostDevice = GetTrimDevicePath (mountedVolume->Path);
 		const string virtualDevice = GetTrimDevicePath (mountedVolume->VirtualDevice);
@@ -637,7 +646,17 @@ namespace VeraCrypt
 
 		uint64 size;
 		uint32 blockSize;
-		int fd = OpenTrimDevice (hostDevice, true, size, blockSize);
+		int fd;
+		try
+		{
+			// The volume is already dismounted; the host device may have been claimed since, as by a mount
+			fd = OpenTrimDevice (hostDevice, true, size, blockSize);
+		}
+		catch (exception &e)
+		{
+			skipReason = StringConverter::ToExceptionString (e);
+			return 0;
+		}
 		finally_do_arg (int, fd, { close (finally_arg); });
 
 		// The device is checked again on the descriptor that the discards go to
@@ -719,18 +738,29 @@ namespace VeraCrypt
 	{
 		if (!mountedVolume->MountPoint.IsEmpty())
 		{
-#ifdef TC_LINUX
+			// DismountVolumeAndTrim unmounts the filesystem before the volume is detached
+			bool mountPointMounted = true;
 			try
 			{
-				DismountFilesystem (mountedVolume->MountPoint, ignoreOpenFiles);
+				mountPointMounted = !GetMountedFilesystems (DevicePath(), mountedVolume->MountPoint).empty();
 			}
-			catch (ExecutedProcessFailed &e)
+			catch (...) { }
+
+			if (mountPointMounted)
 			{
-				throw FilesystemDismountFailed (e);
-			}
+#ifdef TC_LINUX
+				try
+				{
+					DismountFilesystem (mountedVolume->MountPoint, ignoreOpenFiles);
+				}
+				catch (ExecutedProcessFailed &e)
+				{
+					throw FilesystemDismountFailed (e);
+				}
 #else
-			DismountFilesystem (mountedVolume->MountPoint, ignoreOpenFiles);
+				DismountFilesystem (mountedVolume->MountPoint, ignoreOpenFiles);
 #endif
+			}
 
 			// Delete mount directory if a default path has been used
 			if (string (mountedVolume->MountPoint).find (GetDefaultMountPointPrefix()) == 0)
@@ -1745,9 +1775,7 @@ namespace VeraCrypt
 		}
 #endif
 
-#ifdef VC_MACOSX_FUSET
 		uint64 fuseServiceSerialInstanceNumber;
-#endif
 
 		try
 		{
@@ -1762,11 +1790,7 @@ namespace VeraCrypt
 			finally_do_arg (char *, canonicalPath, { free (finally_arg); });
 			fuseMountPoint = canonicalPath;
 #endif
-#ifdef VC_MACOSX_FUSET
 			fuseServiceSerialInstanceNumber = FuseService::Mount (volume, options.SlotNumber, fuseMountPoint);
-#else
-			FuseService::Mount (volume, options.SlotNumber, fuseMountPoint);
-#endif
 		}
 		catch (...)
 		{
@@ -1779,7 +1803,7 @@ namespace VeraCrypt
 		}
 
 		if (options.Path->IsDevice())
-			RecordDeviceHostedVolume (*volume, fuseMountPoint);
+			RecordDeviceHostedVolume (*volume, fuseMountPoint, fuseServiceSerialInstanceNumber);
 
 		DevicePath mountedVirtualDevice;
 

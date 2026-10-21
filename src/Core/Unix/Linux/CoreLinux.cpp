@@ -38,8 +38,12 @@
 #endif
 #include "Driver/Fuse/FuseService.h"
 #include "Core/Unix/CoreServiceProxy.h"
+#include "Core/Unix/ExfatFreeSpace.h"
 
 // From linux/fs.h, which conflicts with sys/mount.h
+#ifndef BLKDISCARD
+#define BLKDISCARD _IO(0x12,119)
+#endif
 #ifndef FITRIM
 struct fstrim_range
 {
@@ -50,6 +54,9 @@ struct fstrim_range
 #define FITRIM _IOWR('X', 121, struct fstrim_range)
 #endif
 
+#ifndef EXFAT_SUPER_MAGIC
+#define EXFAT_SUPER_MAGIC 0x2011BAB0
+#endif
 #ifndef FUSE_SUPER_MAGIC
 #define FUSE_SUPER_MAGIC 0x65735546
 #endif
@@ -1626,6 +1633,97 @@ namespace VeraCrypt
 			}
 
 			throw;
+		}
+	}
+
+	string CoreLinux::GetTrimDevicePath (const FilesystemPath &devicePath) const
+	{
+		char *resolvedPath = realpath (string (devicePath).c_str(), nullptr);
+		if (!resolvedPath)
+			throw TrimFailed (SRC_POS, L"TRIM_UNSUPPORTED_HOST");
+
+		const string path = resolvedPath;
+		free (resolvedPath);
+
+		struct stat devStat;
+		if (path.find ("/dev/") != 0 || stat (path.c_str(), &devStat) != 0 || !S_ISBLK (devStat.st_mode))
+			throw TrimFailed (SRC_POS, L"TRIM_UNSUPPORTED_HOST");
+
+		return path;
+	}
+
+	int CoreLinux::OpenTrimDevice (const string &devicePath, bool readWrite, uint64 &size, uint32 &blockSize) const
+	{
+		int fd = open (devicePath.c_str(), (readWrite ? O_RDWR | O_EXCL : O_RDONLY) | O_CLOEXEC);
+		throw_sys_sub_if (fd == -1, StringConverter::ToWide (devicePath));
+
+		int sectorSize;
+		uint64_t deviceSize;
+		if (ioctl (fd, BLKSSZGET, &sectorSize) == -1 || ioctl (fd, BLKGETSIZE64, &deviceSize) == -1)
+		{
+			int err = errno;
+			close (fd);
+			errno = err;
+			throw SystemException (SRC_POS, StringConverter::ToWide (devicePath));
+		}
+
+		size = deviceSize;
+		blockSize = (uint32) sectorSize;
+		return fd;
+	}
+
+	bool CoreLinux::TrimDeviceSupportsDiscard (int fd, const string &devicePath) const
+	{
+		struct stat devStat;
+		throw_sys_sub_if (fstat (fd, &devStat) == -1, StringConverter::ToWide (devicePath));
+		return DeviceSupportsDiscard (devStat.st_rdev);
+	}
+
+	bool CoreLinux::IsExfatMounted (const VolumeInfo &volume, uint64 &freeBytes) const
+	{
+		int fd = open (string (volume.MountPoint).c_str(), O_RDONLY | O_DIRECTORY | O_CLOEXEC);
+		if (fd == -1)
+			return false;
+		finally_do_arg (int, fd, { close (finally_arg); });
+
+		struct stat deviceStat;
+		struct statfs filesystemStat;
+		if (stat (string (volume.VirtualDevice).c_str(), &deviceStat) != 0 || !S_ISBLK (deviceStat.st_mode) || !IsMountedFrom (fd, deviceStat.st_rdev)
+			|| fstatfs (fd, &filesystemStat) != 0 || filesystemStat.f_type != EXFAT_SUPER_MAGIC)
+		{
+			return false;
+		}
+
+		freeBytes = (uint64) filesystemStat.f_bfree * filesystemStat.f_bsize;
+		return true;
+	}
+
+	void CoreLinux::CheckExfatFilesystem (const string &devicePath) const
+	{
+		list <string> args;
+		args.push_back ("-n");
+		args.push_back (devicePath);
+
+		string error;
+		const string fsck = Process::FindSystemBinary ("fsck.exfat", error);
+		if (fsck.empty())
+			throw SystemException (SRC_POS, error);
+
+		Process::ExecuteBounded (fsck, args, TrimFsckTimeout, TrimFsckOutputLimit);
+	}
+
+	void CoreLinux::FlushTrimDevice (int fd) const
+	{
+		if (fsync (fd) == -1)
+			SystemLog::WriteError ("fsync failed: " + string (strerror (errno)));
+	}
+
+	void CoreLinux::DiscardTrimExtents (int fd, const string &devicePath, const vector <ExfatRange> &extents) const
+	{
+		for (const ExfatRange &extent : extents)
+		{
+			uint64_t range[2] = { extent.Offset, extent.Length };
+			throw_sys_sub_if (ioctl (fd, BLKDISCARD, range) == -1, StringConverter::ToWide (devicePath));
 		}
 	}
 

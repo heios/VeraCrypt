@@ -41,6 +41,15 @@ namespace VeraCrypt
 		virtual void MountVolumeNative (shared_ptr <Volume> volume, MountOptions &options, const DirectoryPath &auxMountPoint) const;
 		virtual void UpdateMountedVolumeInfo (shared_ptr <VolumeInfo> mountedVolume) const;
 
+		virtual bool SupportsTrimAfterDismount () const { return true; }
+		virtual string GetTrimDevicePath (const FilesystemPath &devicePath) const;
+		virtual int OpenTrimDevice (const string &devicePath, bool readWrite, uint64 &size, uint32 &blockSize) const;
+		virtual bool TrimDeviceSupportsDiscard (int fd, const string &devicePath) const;
+		virtual bool IsExfatMounted (const VolumeInfo &volume, uint64 &freeBytes) const;
+		virtual void CheckExfatFilesystem (const string &devicePath) const;
+		virtual void FlushTrimDevice (int fd) const;
+		virtual void DiscardTrimExtents (int fd, const string &devicePath, const vector <ExfatRange> &extents) const;
+
 	private:
 		void DismountNativeVolumeInternal (shared_ptr <VolumeInfo> mountedVolume, bool deferred) const;
 		DevicePath GetOwnedVirtualDevice (const VolumeInfo &volume) const;

@@ -98,12 +98,13 @@ namespace VeraCrypt
 			uint64 DataOffset;
 			uint64 DataSize;
 			int32 MountId[2];	// identity of the auxiliary mount the record was written for
+			uint64 SerialInstanceNumber;	// FUSE service instance that serves the volume; Linux has no mount identity for MountId
 			uint8 Type;			// VolumeType::Enum
 			uint8 Protection;	// VolumeProtection::Enum
 			uint8 Header[512];
 		};
 
-		void RecordDeviceHostedVolume (const Volume &volume, const DirectoryPath &auxMountPoint) const;
+		void RecordDeviceHostedVolume (const Volume &volume, const DirectoryPath &auxMountPoint, uint64 serialInstanceNumber) const;
 		void RemoveDeviceHostedVolumeRecord (const VolumePath &devicePath) const;
 
 		static const int TrimFsckTimeout = 10 * 60 * 1000;

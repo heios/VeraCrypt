@@ -1500,12 +1500,23 @@ const FileManager fileManagers[] = {
 					" volumes are unmounted. See below for description of MOUNTED_VOLUME.\n"
 					"\n"
 					"--trim\n"
+#ifdef TC_LINUX
+					" Use with --unmount and exactly one MOUNTED_VOLUME: TRIM the free space of the\n"
+					" volume on the host device and unmount it, so the drive can tell which parts\n"
+					" of the volume hold no data. With kernel cryptographic services, any\n"
+					" filesystem supporting FITRIM is trimmed before unmounting; without them,\n"
+					" only exFAT, after unmounting. Normal volumes hosted on a partition or device\n"
+					" only. A hidden volume inside the outer volume is destroyed. A warning asks\n"
+					" for confirmation unless --non-interactive is given. Cannot be combined with\n"
+					" --force.\n"
+#else
 					" Use with --unmount and exactly one MOUNTED_VOLUME: after unmounting, TRIM the\n"
 					" free space of the volume's exFAT filesystem on the host device, so the drive\n"
 					" can tell which parts of the volume hold no data. Normal volumes hosted on a\n"
 					" partition or device only. A hidden volume inside the outer volume is\n"
 					" destroyed. A warning asks for confirmation unless --non-interactive is given.\n"
 					" Cannot be combined with --force.\n"
+#endif
 					"\n"
 					"--delete-token-keyfiles\n"
 					" Delete keyfiles from security tokens. See also command --list-token-keyfiles.\n"

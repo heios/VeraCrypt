@@ -1721,6 +1721,7 @@
     <entry lang="en" key="TRIM_UNSUPPORTED_PROTECTION">The volume is mounted read-only or with hidden volume protection.</entry>
     <entry lang="en" key="TRIM_UNSUPPORTED_HOST">Only volumes hosted on a partition or disk device can be trimmed, not file containers.</entry>
     <entry lang="en" key="TRIM_UNSUPPORTED_FILESYSTEM">Only exFAT filesystems can be trimmed.</entry>
+    <entry lang="en" key="LINUX_TRIM_UNSUPPORTED_FILESYSTEM">Without kernel cryptographic services, only exFAT filesystems mounted with the in-kernel exFAT driver can be trimmed.</entry>
     <entry lang="en" key="TRIM_FILESYSTEM_NO_TRIM">The volume has no mounted filesystem that supports TRIM.</entry>
     <entry lang="en" key="TRIM_DEVICE_SUSPENDED">A device-mapper device of the volume may be suspended, which blocks all access to the volume. To recover, run "dmsetup info" as root and, for each VeraCrypt device in the SUSPENDED state, run "dmsetup clear" and then "dmsetup resume" with its name. Then unmount the volume.</entry>
     <entry lang="en" key="TRIM_HOST_DEVICE_UNSUPPORTED">The host device does not support TRIM.</entry>
