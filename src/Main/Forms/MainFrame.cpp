@@ -397,8 +397,8 @@ namespace VeraCrypt
 		MountAllDevicesButton->SetLabel (LangString["LINUX_MOUNT_ALL_DEV"]);
 #endif
 
-#ifndef TC_MACOSX
-		// Unmounting with TRIM is only implemented for macOS: take its cell out of the button row
+#if !defined (TC_MACOSX) && !defined (TC_LINUX)
+		// Unmounting with TRIM is only implemented for macOS and Linux: take its cell out of the button row
 		wxWindow *trimBox = DismountTrimButton->GetParent();
 		wxSizer *trimCell = trimBox->GetContainingSizer();
 		for (wxSizerItemList::compatibility_iterator node = LowStaticBoxSizer->GetChildren().GetFirst(); node; node = node->GetNext())
@@ -1824,7 +1824,11 @@ namespace VeraCrypt
 		VolumePropertiesButton->Enable (mounted);
 
 		// With no mounted volume selected, the tooltip tells which volumes can be trimmed
+#ifdef TC_LINUX
+		wstring trimReason = mounted ? L"" : L"LINUX_TRIM_UNMOUNT_BUTTON_HELP";
+#else
 		wstring trimReason = mounted ? L"" : L"TRIM_UNMOUNT_BUTTON_HELP";
+#endif
 		DismountTrimButton->Enable (mounted && Core->IsTrimSupported (GetSelectedVolume(), trimReason));
 		if (trimReason.empty())
 			DismountTrimButton->UnsetToolTip();

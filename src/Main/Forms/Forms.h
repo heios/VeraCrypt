@@ -599,6 +599,7 @@ namespace VeraCrypt
 			wxCheckBox* CloseExplorerWindowsOnDismountCheckBox;
 			wxStaticBoxSizer* KernelServicesSizer;
 			wxCheckBox* NoKernelCryptoCheckBox;
+			wxCheckBox* AllowTrimCheckBox;
 			wxPanel* PerformanceOptionsPage;
 			wxStaticText* AesHwCpuSupportedStaticText;
 			wxCheckBox* NoHardwareCryptoCheckBox;
@@ -635,6 +636,7 @@ namespace VeraCrypt
 			virtual void OnPreserveTimestampsCheckBoxClick( wxCommandEvent& event ) { event.Skip(); }
 			virtual void OnBackgroundTaskEnabledCheckBoxClick( wxCommandEvent& event ) { event.Skip(); }
 			virtual void OnNoKernelCryptoCheckBoxClick( wxCommandEvent& event ) { event.Skip(); }
+			virtual void OnAllowTrimCheckBoxClick( wxCommandEvent& event ) { event.Skip(); }
 			virtual void OnNoHardwareCryptoCheckBoxClick( wxCommandEvent& event ) { event.Skip(); }
 			virtual void OnSelectPkcs11ModuleButtonClick( wxCommandEvent& event ) { event.Skip(); }
 			virtual void OnHotkeyListItemDeselected( wxListEvent& event ) { event.Skip(); }

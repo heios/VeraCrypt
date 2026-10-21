@@ -28,6 +28,7 @@ namespace VeraCrypt
 		void SelectPage (wxPanel *page);
 
 	protected:
+		void OnAllowTrimCheckBoxClick (wxCommandEvent& event);
 		void OnAssignHotkeyButtonClick (wxCommandEvent& event);
 		void OnBackgroundTaskEnabledCheckBoxClick (wxCommandEvent& event);
 		void OnCancelButtonClick (wxCommandEvent& event) { EndModal (wxID_CANCEL); }

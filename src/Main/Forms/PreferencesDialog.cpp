@@ -272,6 +272,9 @@ namespace VeraCrypt
 		TC_CHECK_BOX_VALIDATOR (OpenExplorerWindowAfterMount);
 
 		NoKernelCryptoCheckBox->SetValidator (wxGenericValidator (&Preferences.DefaultMountOptions.NoKernelCrypto));
+#ifdef TC_LINUX
+		AllowTrimCheckBox->SetValidator (wxGenericValidator (&Preferences.DefaultMountOptions.AllowTrim));
+#endif
 
 #ifdef TC_WINDOWS
 		// Hotkeys
@@ -487,10 +490,27 @@ namespace VeraCrypt
 		Gui->ShowWarning (LangString["LINUX_REMOUNT_BECAUSEOF_SETTING"]);
 	}
 
+	void PreferencesDialog::OnAllowTrimCheckBoxClick (wxCommandEvent& event)
+	{
+		if (event.IsChecked())
+		{
+			AllowTrimCheckBox->SetValue (Gui->AskYesNo (LangString["LINUX_ALLOW_TRIM_CONFIRM"], false, true));
+
+			// Allowing TRIM requires kernel cryptographic services
+			if (AllowTrimCheckBox->IsChecked())
+				NoKernelCryptoCheckBox->SetValue (false);
+		}
+	}
+
 	void PreferencesDialog::OnNoKernelCryptoCheckBoxClick (wxCommandEvent& event)
 	{
 		if (event.IsChecked())
+		{
 			NoKernelCryptoCheckBox->SetValue (Gui->AskYesNo (LangString["LINUX_DISABLE_KERNEL_CRYPT_CONFIRM"], false, true));
+
+			if (NoKernelCryptoCheckBox->IsChecked())
+				AllowTrimCheckBox->SetValue (false);
+		}
 	}
 
 	void PreferencesDialog::OnClose (wxCloseEvent& event)
