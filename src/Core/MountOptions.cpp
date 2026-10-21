@@ -21,6 +21,9 @@ namespace VeraCrypt
 #define TC_CLONE(NAME) NAME = other.NAME
 #define TC_CLONE_SHARED(TYPE,NAME) NAME = other.NAME ? make_shared <TYPE> (*other.NAME) : shared_ptr <TYPE> ()
 
+#ifdef TC_LINUX
+		TC_CLONE (AllowTrim);
+#endif
 		TC_CLONE (CachePassword);
 		TC_CLONE (FilesystemOptions);
 		TC_CLONE (FilesystemType);
@@ -63,6 +66,9 @@ namespace VeraCrypt
 		Serializer sr (stream);
 		wstring nameValue;
 
+#ifdef TC_LINUX
+		sr.Deserialize ("AllowTrim", AllowTrim);
+#endif
 		sr.Deserialize ("CachePassword", CachePassword);
 		sr.Deserialize ("FilesystemOptions", FilesystemOptions);
 		sr.Deserialize ("FilesystemType", FilesystemType);
@@ -136,6 +142,9 @@ namespace VeraCrypt
 	{
 		Serializer sr (stream);
 
+#ifdef TC_LINUX
+		sr.Serialize ("AllowTrim", AllowTrim);
+#endif
 		sr.Serialize ("CachePassword", CachePassword);
 		sr.Serialize ("FilesystemOptions", FilesystemOptions);
 		sr.Serialize ("FilesystemType", FilesystemType);

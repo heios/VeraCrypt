@@ -720,6 +720,7 @@ namespace VeraCrypt
 		EX2MSG (UnsupportedSectorSize,				LangString["SECTOR_SIZE_UNSUPPORTED"]);
 		EX2MSG (UnsupportedSectorSizeHiddenVolumeProtection, LangString["LINUX_EX2MSG_UNSUPPORTEDSECTORSIZEHIDDENVOLUMEPROTECTION"]);
 		EX2MSG (UnsupportedSectorSizeNoKernelCrypto, LangString["LINUX_EX2MSG_UNSUPPORTEDSECTORSIZENOKERNELCRYPTO"]);
+		EX2MSG (UnsupportedTrimNoKernelCrypto,		LangString["LINUX_EX2MSG_UNSUPPORTEDTRIMNOKERNELCRYPTO"]);
 #else
 		EX2MSG (UnsupportedSectorSize,				LangString["LINUX_EX2MSG_UNSUPPORTEDSECTORSIZE"]);
 #endif
@@ -1664,6 +1665,12 @@ const FileManager fileManagers[] = {
 #ifdef TC_LINUX
 					"  kernelntfs: Use an available in-kernel NTFS driver when NTFS is\n"
 					"   detected and no filesystem type was supplied.\n"
+					"  allowtrim: Pass TRIM (discard) requests from the filesystem to the host\n"
+					"   device, e.g. for fstrim. Ignored for hidden volumes, file containers and\n"
+					"   read-only or protected mounts; other volumes must be mounted using kernel\n"
+					"   cryptographic services. Anyone examining the drive can tell which parts\n"
+					"   of the volume hold no data, and TRIM on an outer volume destroys a hidden\n"
+					"   volume inside it.\n"
 #endif
 					" See also option --fs-options.\n"
 					"\n"
@@ -2079,6 +2086,7 @@ const FileManager fileManagers[] = {
 		VC_CONVERT_EXCEPTION (TemporaryDirectoryFailure);
 		VC_CONVERT_EXCEPTION (UnsupportedSectorSizeHiddenVolumeProtection);
 		VC_CONVERT_EXCEPTION (UnsupportedSectorSizeNoKernelCrypto);
+		VC_CONVERT_EXCEPTION (UnsupportedTrimNoKernelCrypto);
 		VC_CONVERT_EXCEPTION (VolumeAlreadyMounted);
 		VC_CONVERT_EXCEPTION (VolumeSlotUnavailable);
 		// Handle UserInterfaceException subclasses before the base class to avoid slicing.

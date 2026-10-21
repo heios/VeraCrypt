@@ -67,6 +67,7 @@ namespace VeraCrypt
 		VC_CONVERT_EXCEPTION (TemporaryDirectoryFailure);
 		VC_CONVERT_EXCEPTION (UnsupportedSectorSizeHiddenVolumeProtection);
 		VC_CONVERT_EXCEPTION (UnsupportedSectorSizeNoKernelCrypto);
+		VC_CONVERT_EXCEPTION (UnsupportedTrimNoKernelCrypto);
 		VC_CONVERT_EXCEPTION (VolumeAlreadyMounted);
 		VC_CONVERT_EXCEPTION (VolumeSlotUnavailable);
 		// Handle UserInterfaceException subclasses before the base class to avoid slicing.

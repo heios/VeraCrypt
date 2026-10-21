@@ -66,6 +66,7 @@ namespace VeraCrypt
 	TC_EXCEPTION (TrimDismountFailed); \
 	TC_EXCEPTION (UnsupportedSectorSizeHiddenVolumeProtection); \
 	TC_EXCEPTION (UnsupportedSectorSizeNoKernelCrypto); \
+	TC_EXCEPTION (UnsupportedTrimNoKernelCrypto); \
 	TC_EXCEPTION (VolumeAlreadyMounted); \
 	TC_EXCEPTION (VolumeSlotUnavailable);
 

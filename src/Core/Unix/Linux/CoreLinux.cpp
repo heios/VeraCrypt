@@ -1513,6 +1513,12 @@ namespace VeraCrypt
 				else
 					dmCreateArgs << nativeDevPath << " 0";
 
+				// As for unmounting with TRIM, only a normal volume on a device, mounted without protection, passes
+				// discards. As on Windows, a hidden volume never does, which would show where its data is.
+				if (options.AllowTrim && volume->GetType() == VolumeType::Normal && volume->GetProtectionType() == VolumeProtection::None
+					&& options.Path->IsDevice())
+					dmCreateArgs << " 1 allow_discards";
+
 				SecureBuffer dmCreateArgsBuf (dmCreateArgs.str().size());
 				dmCreateArgsBuf.CopyFrom (ConstBufferPtr ((uint8 *) dmCreateArgs.str().c_str(), dmCreateArgs.str().size()));
 
@@ -1634,6 +1640,19 @@ namespace VeraCrypt
 
 			throw;
 		}
+	}
+
+	DevicePath CoreLinux::MountAuxVolumeImage (const DirectoryPath &auxMountPoint, const MountOptions &options) const
+	{
+		// Discards cannot pass through the volume image. allowtrim is ignored where kernel cryptography would ignore it.
+		if (options.AllowTrim && options.Path->IsDevice())
+		{
+			shared_ptr <VolumeInfo> volume = ReadAuxiliaryVolumeInfo (auxMountPoint);
+			if (volume->Type == VolumeType::Normal && volume->Protection == VolumeProtection::None)
+				throw UnsupportedTrimNoKernelCrypto (SRC_POS);
+		}
+
+		return CoreUnix::MountAuxVolumeImage (auxMountPoint, options);
 	}
 
 	string CoreLinux::GetTrimDevicePath (const FilesystemPath &devicePath) const

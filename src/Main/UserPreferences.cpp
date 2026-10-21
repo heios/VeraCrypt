@@ -106,6 +106,7 @@ namespace VeraCrypt
 			DefaultMountOptions.Protection = readOnly ? VolumeProtection::ReadOnly : VolumeProtection::None;
 
 #ifdef TC_LINUX
+			if (configMap.count(L"AllowTrim") > 0) { SetValue (configMap[L"AllowTrim"], DefaultMountOptions.AllowTrim); configMap.erase (L"AllowTrim"); }
 			if (configMap.count(L"MountNtfsWithKernelDriver") > 0) { SetValue (configMap[L"MountNtfsWithKernelDriver"], DefaultMountOptions.MountNtfsWithKernelDriver); configMap.erase (L"MountNtfsWithKernelDriver"); }
 			else if (configMap.count(L"MountNtfsWithNtfs3") > 0) { SetValue (configMap[L"MountNtfsWithNtfs3"], DefaultMountOptions.MountNtfsWithKernelDriver); }
 			configMap.erase (L"MountNtfsWithNtfs3");
@@ -233,6 +234,7 @@ namespace VeraCrypt
 		TC_CONFIG_ADD (MountFavoritesOnLogon);
 		formatter.AddEntry (L"MountVolumesReadOnly", DefaultMountOptions.Protection == VolumeProtection::ReadOnly);
 #ifdef TC_LINUX
+		formatter.AddEntry (L"AllowTrim", DefaultMountOptions.AllowTrim);
 		formatter.AddEntry (L"MountNtfsWithKernelDriver", DefaultMountOptions.MountNtfsWithKernelDriver);
 #endif
 		formatter.AddEntry (L"MountVolumesRemovable", DefaultMountOptions.Removable);

@@ -25,6 +25,9 @@ namespace VeraCrypt
 	{
 		MountOptions ()
 			:
+#ifdef TC_LINUX
+			AllowTrim (false),
+#endif
 			CachePassword (false),
 #ifdef TC_LINUX
 			MountNtfsWithKernelDriver (false),
@@ -52,6 +55,9 @@ namespace VeraCrypt
 
 		TC_SERIALIZABLE (MountOptions);
 
+#ifdef TC_LINUX
+		bool AllowTrim;
+#endif
 		bool CachePassword;
 		wstring FilesystemOptions;
 		wstring FilesystemType;

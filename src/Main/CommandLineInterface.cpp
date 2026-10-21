@@ -490,6 +490,8 @@ namespace VeraCrypt
 #ifdef TC_LINUX
 				else if (token == L"kernelntfs" || token == L"kernel-ntfs")
 					ArgMountOptions.MountNtfsWithKernelDriver = true;
+				else if (token == L"allowtrim")
+					ArgMountOptions.AllowTrim = true;
 #endif
 #ifdef TC_WINDOWS
 				else if (token == L"removable" || token == L"rm")
