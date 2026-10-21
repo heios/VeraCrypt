@@ -1,0 +1,170 @@
+name: Build and test macOS
+
+# Builds the GUI version with src/Build/build_veracrypt_macosx.sh (without -p:
+# no signing, no package) and runs the algorithm self-tests. Nothing is
+# mounted: hosted runners cannot load the macFUSE kernel extension.
+#
+# Pull requests and pushes build the universal macFUSE build (the release
+# configuration) on Apple Silicon and a native FUSE-T build (-l -f) on Intel.
+# The full suite (manual run with "full" selected) adds a native FUSE-T build
+# on Apple Silicon, a native macFUSE build on Intel (-l), and the Homebrew
+# wxWidgets build (-b).
+
+on:
+  push:
+    branches: [ "master" ]
+    paths:
+      - 'src/Build/Include/Makefile.inc'
+      - 'src/Build/Resources/MacOSX/**'
+      - 'src/Build/Tools/MacOSX/**'
+      - 'src/Build/build_veracrypt_macosx.sh'
+      - 'src/Common/*.h'
+      - 'src/Common/*.cpp'
+      - 'src/Common/*.c'
+      - 'src/Common/Language.xml'
+      - 'src/Core/**'
+      - 'src/Crypto/**'
+      - 'src/Driver/Fuse/**'
+      - 'src/Main/**'
+      - 'src/PKCS11/**'
+      - 'src/Platform/**'
+      - 'src/Resources/**'
+      - 'src/Volume/**'
+      - 'src/Makefile'
+      - '.github/workflows/build-macos.yml'
+  pull_request:
+    branches: [ "master" ]
+    paths:
+      - 'src/Build/Include/Makefile.inc'
+      - 'src/Build/Resources/MacOSX/**'
+      - 'src/Build/Tools/MacOSX/**'
+      - 'src/Build/build_veracrypt_macosx.sh'
+      - 'src/Common/*.h'
+      - 'src/Common/*.cpp'
+      - 'src/Common/*.c'
+      - 'src/Common/Language.xml'
+      - 'src/Core/**'
+      - 'src/Crypto/**'
+      - 'src/Driver/Fuse/**'
+      - 'src/Main/**'
+      - 'src/PKCS11/**'
+      - 'src/Platform/**'
+      - 'src/Resources/**'
+      - 'src/Volume/**'
+      - 'src/Makefile'
+      - '.github/workflows/build-macos.yml'
+  # Manual runs, e.g. on a fork before opening a pull request.
+  workflow_dispatch:
+    inputs:
+      full:
+        description: 'Full suite: also build on Intel, and with Homebrew wxWidgets'
+        type: boolean
+        default: true
+
+permissions:
+  contents: read
+
+concurrency:
+  # Keep a manual full run from being cancelled by a push, and vice versa.
+  group: ${{ github.workflow }}-${{ github.event_name }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+env:
+  HOMEBREW_NO_AUTO_UPDATE: 1
+
+jobs:
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ "macos-26", "macos-26-intel" ]
+        # Options of build_veracrypt_macosx.sh. None: universal macFUSE build.
+        # -l: macFUSE build for the runner's architecture only. -l -f: same
+        # with FUSE-T. -b: Homebrew wxWidgets, runner's architecture only.
+        options: ${{ fromJSON(github.event_name == 'workflow_dispatch' && inputs.full && '["","-l","-l -f","-b"]' || '["","-l -f"]') }}
+        exclude:
+          # Pull requests and pushes use one arm64 job only: hosted arm64
+          # runners are often not available. ('none' matches no runner.)
+          - os: ${{ github.event_name == 'workflow_dispatch' && inputs.full && 'none' || 'macos-26' }}
+            options: -l -f
+          - os: macos-26
+            options: -l
+          # A cold universal build takes over an hour on Intel. The x86_64
+          # slice is built on Apple Silicon and tested there under Rosetta.
+          - os: macos-26-intel
+            options: ''
+          - os: macos-26-intel
+            options: -b
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 60
+    name: ${{ matrix.os }} ${{ matrix.options || 'universal' }}
+
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v4
+
+    # Headers and libraries only; the kernel extension is not loaded.
+    - name: Install macFUSE
+      if: ${{ !contains(matrix.options, '-f') }}
+      run: brew install --cask macfuse
+
+    - name: Install FUSE-T
+      if: contains(matrix.options, '-f')
+      run: brew install macos-fuse-t/homebrew-cask/fuse-t
+
+    - name: Install wxWidgets
+      if: matrix.options == '-b'
+      run: brew install wxwidgets
+
+    # The Makefile runs yasm from PATH. Use the universal binary in the
+    # repository.
+    - name: Add yasm to PATH
+      run: echo "$GITHUB_WORKSPACE/src/Build/Tools/MacOSX" >> "$GITHUB_PATH"
+
+    # wxWidgets is configured with the SDK path (--with-macosx-sdk), so a new
+    # Xcode needs a new wxWidgets build.
+    - name: Generate cache key
+      if: matrix.options != '-b'
+      id: cache-key
+      run: |
+        wx_version=$(sed -n 's/^DEFAULT_WX_VERSION="\(.*\)"$/\1/p' src/Build/build_veracrypt_macosx.sh)
+        if [ -z "$wx_version" ]; then
+          echo "::error::DEFAULT_WX_VERSION not found in src/Build/build_veracrypt_macosx.sh"
+          exit 1
+        fi
+        sdk=$(xcrun --show-sdk-path | shasum | cut -c1-8)
+        echo "wx_version=$wx_version" >> "$GITHUB_OUTPUT"
+        echo "cache_key=${{ matrix.os }}-${{ contains(matrix.options, '-l') && 'native' || 'universal' }}-$wx_version-$sdk-${{ hashFiles('src/Makefile', 'src/Build/build_veracrypt_macosx.sh', '.github/workflows/build-macos.yml') }}" >> "$GITHUB_OUTPUT"
+
+    - name: Cache wxWidgets
+      if: matrix.options != '-b'
+      uses: actions/cache@v5
+      id: cache-wxwidgets
+      with:
+        path: |
+          /tmp/wxWidgets-${{ steps.cache-key.outputs.wx_version }}
+          /tmp/wxBuild-${{ steps.cache-key.outputs.wx_version }}
+        key: wxWidgets-${{ steps.cache-key.outputs.cache_key }}
+
+    - name: Download and extract wxWidgets to /tmp
+      if: matrix.options != '-b' && steps.cache-wxwidgets.outputs.cache-hit != 'true'
+      env:
+        WX_VERSION: ${{ steps.cache-key.outputs.wx_version }}
+      run: |
+        curl -fsSLo /tmp/wxWidgets.tar.bz2 "https://github.com/wxWidgets/wxWidgets/releases/download/v$WX_VERSION/wxWidgets-$WX_VERSION.tar.bz2"
+        tar -xjf /tmp/wxWidgets.tar.bz2 -C /tmp
+
+    # The script runs make without -j.
+    - name: Build VeraCrypt
+      run: MAKEFLAGS=-j$(sysctl -n hw.ncpu) src/Build/build_veracrypt_macosx.sh ${{ matrix.options }}
+
+    - name: Algorithm self-tests
+      run: |
+        app=src/Main/VeraCrypt.app/Contents/MacOS/VeraCrypt
+        file "$app"
+        "$app" --text --version
+        "$app" --text --test
+
+    - name: Algorithm self-tests of the x86_64 slice under Rosetta
+      if: matrix.os == 'macos-26' && matrix.options == ''
+      run: arch -x86_64 src/Main/VeraCrypt.app/Contents/MacOS/VeraCrypt --text --test
