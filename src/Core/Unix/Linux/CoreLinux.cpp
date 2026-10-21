@@ -470,6 +470,51 @@ namespace VeraCrypt
 			return string (volume.AuxMountPoint) + FuseService::GetVolumeImagePath();
 		}
 
+		// Selects the device by its UUID, or by its name if an earlier version created it
+		list <string> GetDeviceMapperArgs (const VolumeInfo &volume, const string &name, const DeviceMapperDevice &device)
+		{
+			list <string> args;
+			if (device.Legacy)
+			{
+				args.push_back (device.Name);
+			}
+			else
+			{
+				args.push_back ("-u");
+				args.push_back (GetDeviceMapperUuid (volume.SerialInstanceNumber, name));
+			}
+
+			return args;
+		}
+
+		// The top device first, then the volume's cascade layers <name>_0 ... <name>_<n-2>, the last of which
+		// is on the host
+		list <string> GetDeviceMapperNames (const VolumeInfo &volume, const string &name)
+		{
+			list <string> names;
+			names.push_back (name);
+
+			size_t cipherCount = 0;
+			size_t maxCipherCount = 1;
+			foreach (shared_ptr <EncryptionAlgorithm> ea, EncryptionAlgorithm::GetAvailableAlgorithms())
+			{
+				if (ea->GetName() == volume.EncryptionAlgorithmName)
+					cipherCount = ea->GetCiphers().size();
+
+				if (ea->GetCiphers().size() > maxCipherCount)
+					maxCipherCount = ea->GetCiphers().size();
+			}
+
+			// An unknown algorithm leaves all possible layers to check
+			if (cipherCount == 0)
+				cipherCount = maxCipherCount;
+
+			for (size_t i = 0; i + 1 < cipherCount; i++)
+				names.push_back (name + "_" + StringConverter::ToSingle ((uint32) i));
+
+			return names;
+		}
+
 		bool IsDeviceMapperDeviceOwned (const VolumeInfo &volume, const string &name, bool includeLegacy)
 		{
 			DeviceMapperDevice device;
@@ -517,16 +562,7 @@ namespace VeraCrypt
 			if (GetDeviceMapperOwnership (volume, name, includeLegacy, device) != DeviceOwnership::Owned)
 				return;
 
-			list <string> deviceArgs;
-			if (device.Legacy)
-			{
-				deviceArgs.push_back (device.Name);
-			}
-			else
-			{
-				deviceArgs.push_back ("-u");
-				deviceArgs.push_back (GetDeviceMapperUuid (volume.SerialInstanceNumber, name));
-			}
+			const list <string> deviceArgs = GetDeviceMapperArgs (volume, name, device);
 
 			list <string> removeArgs;
 			removeArgs.push_back ("remove");
@@ -756,30 +792,10 @@ namespace VeraCrypt
 		if (virtualDevice.find (mapperDirectory + "veracrypt") != 0)
 			throw NotApplicable (SRC_POS);
 
-		// Top device first, then the volume's cascade layers <name>_0 ... <name>_<n-2>, any of which a partial dismount
-		// may have removed. A device without a UUID named after a layer that the volume does not have, as left by a
-		// failed cascade mount of an earlier version, cannot be verified and must not fail the dismount.
-		const string name = virtualDevice.substr (mapperDirectory.size());
-		list <string> names;
-		names.push_back (name);
-
-		size_t cipherCount = 0;
-		size_t maxCipherCount = 1;
-		foreach (shared_ptr <EncryptionAlgorithm> ea, EncryptionAlgorithm::GetAvailableAlgorithms())
-		{
-			if (ea->GetName() == volume.EncryptionAlgorithmName)
-				cipherCount = ea->GetCiphers().size();
-
-			if (ea->GetCiphers().size() > maxCipherCount)
-				maxCipherCount = ea->GetCiphers().size();
-		}
-
-		// An unknown algorithm leaves all possible layers to check
-		if (cipherCount == 0)
-			cipherCount = maxCipherCount;
-
-		for (size_t i = 0; i + 1 < cipherCount; i++)
-			names.push_back (name + "_" + StringConverter::ToSingle ((uint32) i));
+		// Any of the devices may have been removed by a partial dismount. A device without a UUID named after a layer
+		// that the volume does not have, as left by a failed cascade mount of an earlier version, cannot be verified
+		// and must not fail the dismount.
+		list <string> names = GetDeviceMapperNames (volume, virtualDevice.substr (mapperDirectory.size()));
 
 		// Device-hosted volumes have no loop device. Earlier versions recorded the host device instead.
 		const bool fileHosted = !volume.LoopDevice.IsEmpty() && wstring (volume.LoopDevice) != wstring (volume.Path);
