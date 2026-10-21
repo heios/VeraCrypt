@@ -20,14 +20,17 @@
 #include <stdlib.h>
 #include <unistd.h>
 #include <linux/loop.h>
+#include <linux/magic.h>
 #include <linux/major.h>
 #include <sys/ioctl.h>
 #include <sys/mount.h>
 #include <sys/stat.h>
 #include <sys/sysmacros.h>
+#include <sys/vfs.h>
 #include <sys/wait.h>
 #include "CoreLinux.h"
 #include "Platform/SystemInfo.h"
+#include "Platform/SystemLog.h"
 #include "Platform/TextReader.h"
 #include "Volume/EncryptionModeXTS.h"
 #ifdef WOLFCRYPT_BACKEND
@@ -35,6 +38,21 @@
 #endif
 #include "Driver/Fuse/FuseService.h"
 #include "Core/Unix/CoreServiceProxy.h"
+
+// From linux/fs.h, which conflicts with sys/mount.h
+#ifndef FITRIM
+struct fstrim_range
+{
+	uint64_t start;
+	uint64_t len;
+	uint64_t minlen;
+};
+#define FITRIM _IOWR('X', 121, struct fstrim_range)
+#endif
+
+#ifndef FUSE_SUPER_MAGIC
+#define FUSE_SUPER_MAGIC 0x65735546
+#endif
 
 namespace VeraCrypt
 {
@@ -515,6 +533,136 @@ namespace VeraCrypt
 			return names;
 		}
 
+		// Whether a block device passes discards; a partition has the limits of its disk
+		bool DeviceSupportsDiscard (dev_t deviceNumber)
+		{
+			stringstream path;
+			path << "/sys/dev/block/" << major (deviceNumber) << ":" << minor (deviceNumber);
+
+			string value;
+			return (ReadSysfsAttribute (path.str() + "/queue/discard_max_bytes", value)
+				|| ReadSysfsAttribute (path.str() + "/../queue/discard_max_bytes", value))
+				&& StringConverter::ToUInt64 (value) > 0;
+		}
+
+		// The lines of a text file, each with its line feed; none if the file cannot be opened
+		vector <string> ReadLines (const string &path)
+		{
+			vector <string> lines;
+			FILE *file = fopen (path.c_str(), "r");
+			if (!file)
+				return lines;
+			finally_do_arg (FILE *, file, { fclose (finally_arg); });
+
+			char *line = nullptr;
+			size_t size = 0;
+			finally_do_arg (char **, &line, { free (*finally_arg); });
+
+			for (ssize_t length; (length = getline (&line, &size, file)) != -1; )
+				lines.push_back (string (line, length));
+
+			return lines;
+		}
+
+		// Whether the filesystem open at fd is mounted from the block device. btrfs reports an anonymous st_dev, so its
+		// mount is looked up by ID and the source checked; not for FUSE, whose source any user can choose.
+		bool IsMountedFrom (int fd, dev_t deviceNumber)
+		{
+			struct stat fileStat;
+			if (fstat (fd, &fileStat) != 0)
+				throw SystemException (SRC_POS);
+
+			if (fileStat.st_dev == deviceNumber)
+				return true;
+
+			stringstream fdInfoPath;
+			fdInfoPath << "/proc/self/fdinfo/" << fd;
+
+			string mountId;
+			for (const string &line : ReadLines (fdInfoPath.str()))
+			{
+				vector <string> fields = StringConverter::Split (line);
+				if (fields.size() == 2 && fields[0] == "mnt_id:")
+					mountId = fields[1];
+			}
+
+			if (mountId.empty())
+				return false;
+
+			for (const string &line : ReadLines ("/proc/self/mountinfo"))
+			{
+				// ID, parent ID, major:minor, root, mount point, options, optional fields, "-", type, source, options
+				size_t separator = line.find (" - ");
+				if (line.find (mountId + " ") != 0 || separator == string::npos)
+					continue;
+
+				vector <string> fields = StringConverter::Split (line.substr (separator + 3));
+				struct stat sourceStat;
+				return fields.size() >= 2 && fields[0].find ("fuse") != 0
+					&& stat (fields[1].c_str(), &sourceStat) == 0 && S_ISBLK (sourceStat.st_mode) && sourceStat.st_rdev == deviceNumber;
+			}
+
+			return false;
+		}
+
+		// Loads the table of a device of the volume again, with or without allow_discards. The table holds the key,
+		// which must not reach argv: a shell reads it into a variable, from which the echo builtin writes it to
+		// dmsetup reload on stdin. The table has no backslashes for echo to interpret, and allow_discards is the only
+		// optional parameter VeraCrypt sets, so the table as mounted is the one without it at the end. env -i keeps
+		// variables such as SHELLOPTS=xtrace, which would make the shell print the key, out of the shell.
+		void ReloadDeviceMapperTable (const list <string> &deviceArgs, bool allowDiscards)
+		{
+			string error;
+			const string dmsetup = Process::FindSystemBinary ("dmsetup", error);
+			const string sh = Process::FindSystemBinary ("sh", error);
+			if (dmsetup.empty() || sh.empty())
+				throw SystemException (SRC_POS, error);
+
+			list <string> args;
+			args.push_back ("-i");
+			args.push_back (sh);
+			args.push_back ("-c");
+			args.push_back ("d=$0 s=$1; shift; "
+				"t=$(\"$d\" table --showkeys \"$@\") && "
+				"echo \"${t% 1 allow_discards}$s\" | \"$d\" reload \"$@\"");
+			args.push_back (dmsetup);
+			args.push_back (allowDiscards ? " 1 allow_discards" : "");
+			args.insert (args.end(), deviceArgs.begin(), deviceArgs.end());
+			Process::Execute ("env", args);
+
+			list <string> resumeArgs;
+			resumeArgs.push_back ("resume");
+			resumeArgs.insert (resumeArgs.end(), deviceArgs.begin(), deviceArgs.end());
+
+			try
+			{
+				Process::Execute (dmsetup, resumeArgs);
+			}
+			catch (...)
+			{
+				// The kernel drops a table it fails to swap in and leaves the device suspended with its previous table.
+				// dmsetup may also fail before the swap, leaving the new table inactive. Drop it and resume the device.
+				list <string> clearArgs (resumeArgs);
+				clearArgs.front() = "clear";
+				try
+				{
+					Process::Execute (dmsetup, clearArgs);
+				}
+				catch (...) { }
+
+				try
+				{
+					Process::Execute (dmsetup, resumeArgs);
+				}
+				catch (exception &e)
+				{
+					SystemLog::WriteException (e);
+					throw TrimFailed (SRC_POS, L"TRIM_DEVICE_SUSPENDED");
+				}
+				throw;
+			}
+		}
+
 		bool IsDeviceMapperDeviceOwned (const VolumeInfo &volume, const string &name, bool includeLegacy)
 		{
 			DeviceMapperDevice device;
@@ -758,6 +906,182 @@ namespace VeraCrypt
 	shared_ptr <VolumeInfo> CoreLinux::DismountVolume (shared_ptr <VolumeInfo> mountedVolume, bool ignoreOpenFiles, bool syncVolumeInfo)
 	{
 		return CoreUnix::DismountVolume (ResolveMountedVolume (mountedVolume), ignoreOpenFiles, syncVolumeInfo);
+	}
+
+	// Without kernel cryptography, the filesystem could only trim the volume image, which ignores discards: an exFAT
+	// volume is trimmed by CoreUnix on the host device after it is dismounted. With kernel cryptography, any filesystem
+	// supporting FITRIM trims its free space through the device-mapper devices before the volume is dismounted.
+	bool CoreLinux::IsTrimSupported (shared_ptr <VolumeInfo> mountedVolume, wstring &reason) const
+	{
+		if (!mountedVolume || IsAuxVolumeImageLoopDevice (*mountedVolume))
+			return CoreUnix::IsTrimSupported (mountedVolume, reason);
+
+		try
+		{
+			struct stat hostStat;
+			if (mountedVolume->Type != VolumeType::Normal || mountedVolume->SystemEncryption)
+				reason = L"TRIM_UNSUPPORTED_VOLUME_TYPE";
+			else if (mountedVolume->Protection != VolumeProtection::None)
+				reason = L"TRIM_UNSUPPORTED_PROTECTION";
+			else if (stat (string (mountedVolume->Path).c_str(), &hostStat) != 0 || !S_ISBLK (hostStat.st_mode))
+				reason = L"TRIM_UNSUPPORTED_HOST";
+			else if (mountedVolume->MountPoint.IsEmpty() || string (mountedVolume->VirtualDevice).find ("/dev/mapper/veracrypt") != 0)
+				reason = L"TRIM_FILESYSTEM_NO_TRIM";
+			else if (!DeviceSupportsDiscard (hostStat.st_rdev))
+				reason = L"TRIM_HOST_DEVICE_UNSUPPORTED";
+			else
+			{
+				// FITRIM on a FUSE filesystem would go to its daemon, not to the kernel
+				MountedFilesystemList filesystems = GetMountedFilesystems (mountedVolume->VirtualDevice, mountedVolume->MountPoint);
+				if (filesystems.size() == 1 && filesystems.front()->Type.find ("fuse") != 0)
+					return true;
+
+				reason = L"TRIM_FILESYSTEM_NO_TRIM";
+			}
+		}
+		catch (exception &)
+		{
+			reason = L"TRIM_HOST_DEVICE_UNSUPPORTED";
+		}
+
+		return false;
+	}
+
+	uint64 CoreLinux::DismountVolumeAndTrim (shared_ptr <VolumeInfo> mountedVolume, wstring &skipReason)
+	{
+		skipReason.clear();
+
+		shared_ptr <VolumeInfo> volume = ResolveMountedVolume (mountedVolume);
+		if (IsAuxVolumeImageLoopDevice (*volume))
+			return CoreUnix::DismountVolumeAndTrim (mountedVolume, skipReason);
+
+		volume->VirtualDevice = GetOwnedVirtualDevice (*volume);
+
+		wstring reason;
+		if (!IsTrimSupported (volume, reason))
+			throw TrimFailed (SRC_POS, reason);
+
+		const list <string> names = GetDeviceMapperNames (*volume, string (volume->VirtualDevice).substr (strlen ("/dev/mapper/")));
+
+		// FITRIM trims the filesystem open at the mount point, which must be the one on the top device
+		DeviceMapperDevice top;
+		if (GetDeviceMapperOwnership (*volume, names.front(), true, top) != DeviceOwnership::Owned)
+			throw TrimFailed (SRC_POS, L"TRIM_VOLUME_CHANGED");
+
+		const string mountPoint = volume->MountPoint;
+		int fd = open (mountPoint.c_str(), O_RDONLY | O_DIRECTORY | O_CLOEXEC);
+		finally_do_arg (int *, &fd, { if (*finally_arg != -1) close (*finally_arg); });
+
+		struct statfs filesystemStat;
+		if (fd == -1 || !IsMountedFrom (fd, top.Number))
+			throw TrimFailed (SRC_POS, L"TRIM_VOLUME_CHANGED");
+		if (fstatfs (fd, &filesystemStat) != 0 || filesystemStat.f_type == FUSE_SUPER_MAGIC)
+			throw TrimFailed (SRC_POS, L"TRIM_FILESYSTEM_NO_TRIM");
+
+		// A device takes its discard limits from the device below when its table is loaded: discards are allowed
+		// from the host up, and disallowed again from the top down. Devices mounted with allow_discards are kept.
+		// A device is listed before it is reloaded, as restoring a table without allow_discards does no harm.
+		// A crash or kill from here until the volume is dismounted leaves discards allowed on the mounted volume;
+		// dismounting it removes them.
+		list < list <string> > reloaded;
+
+		auto restore = [&] ()
+		{
+			bool suspended = false;
+			foreach (const list <string> &deviceArgs, reloaded)
+			{
+				try
+				{
+					ReloadDeviceMapperTable (deviceArgs, false);
+				}
+				catch (TrimFailed &)
+				{
+					suspended = true;
+				}
+				catch (exception &e)
+				{
+					SystemLog::WriteException (e);
+				}
+			}
+			reloaded.clear();
+
+			if (suspended)
+				throw TrimFailed (SRC_POS, L"TRIM_DEVICE_SUSPENDED");
+		};
+
+		try
+		{
+			foreach_reverse (const string &name, names)
+			{
+				DeviceMapperDevice device;
+				if (GetDeviceMapperOwnership (*volume, name, true, device) != DeviceOwnership::Owned)
+					throw TrimFailed (SRC_POS, L"TRIM_VOLUME_CHANGED");
+
+				if (DeviceSupportsDiscard (device.Number))
+					continue;
+
+				reloaded.push_front (GetDeviceMapperArgs (*volume, name, device));
+				ReloadDeviceMapperTable (reloaded.front(), true);
+			}
+		}
+		catch (TrimFailed &)
+		{
+			restore();
+			throw;
+		}
+		catch (exception &e)
+		{
+			restore();
+			throw TrimFailed (SRC_POS, StringConverter::ToExceptionString (e));
+		}
+
+		struct fstrim_range range;
+		Memory::Zero (&range, sizeof (range));
+		range.len = ~(uint64_t) 0;
+
+		if (ioctl (fd, FITRIM, &range) == -1)
+		{
+			const int error = errno;
+			restore();
+
+			if (error == EOPNOTSUPP || error == ENOTTY)
+				throw TrimFailed (SRC_POS, L"TRIM_FILESYSTEM_NO_TRIM");
+
+			errno = error;
+			SystemLog::WriteException (SystemException (SRC_POS, mountPoint));
+			throw TrimFailed (SRC_POS, L"TRIM_UNMAP_FAILED");
+		}
+
+		// An open directory would keep the filesystem busy
+		close (fd);
+		fd = -1;
+
+		try
+		{
+			DismountVolume (volume);
+		}
+		catch (exception &e)
+		{
+			// The user interface shows the error as for a plain dismount. As the core service does,
+			// other exceptions become an ExternalException.
+			Exception *ex = dynamic_cast <Exception *> (&e);
+			shared_ptr <Exception> dismountError (ex ? ex->CloneNew() : new ExternalException (SRC_POS, StringConverter::ToExceptionString (e)));
+			wstring reason;
+
+			// fstrim.timer would trim a volume left mounted with discards allowed
+			try
+			{
+				restore();
+			}
+			catch (TrimFailed &suspended)
+			{
+				reason = suspended.GetSubject();
+			}
+
+			throw TrimDoneDismountFailed (SRC_POS, reason, range.len, dismountError);
+		}
+
+		return range.len;
 	}
 
 	shared_ptr <VolumeInfo> CoreLinux::EmergencyDismountVolume (shared_ptr <VolumeInfo> mountedVolume)

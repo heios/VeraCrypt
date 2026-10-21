@@ -244,6 +244,11 @@ namespace VeraCrypt
 		{
 			throw TrimFailed (SRC_POS, L"TRIM_VOLUME_IN_USE");
 		}
+		catch (TrimDoneDismountFailed &e)
+		{
+			const wxString reason = e.GetSubject().empty() ? ExceptionToMessage (*e.GetDismountError()) : TrimReasonToMessage (e.GetSubject());
+			throw_err (StringFormatter (LangString["TRIM_DONE_DISMOUNT_FAILED"], SizeToString (e.GetTrimmedBytes()), reason));
+		}
 
 		// The volume is unmounted from here on
 		const wstring path (volume->Path), why (TrimReasonToMessage (routine.SkipReason)), size (SizeToString (routine.TrimmedBytes));

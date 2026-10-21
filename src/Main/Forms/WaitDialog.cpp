@@ -99,6 +99,7 @@ namespace VeraCrypt
 		VC_CONVERT_EXCEPTION (MissingVolumeData);
 		VC_CONVERT_EXCEPTION (MountedVolumeInUse);
 		VC_CONVERT_EXCEPTION (TrimFailed);
+		VC_CONVERT_EXCEPTION (TrimDoneDismountFailed);
 		VC_CONVERT_EXCEPTION (TrimDismountFailed);
 		VC_CONVERT_EXCEPTION (UnsupportedSectorSize);
 		VC_CONVERT_EXCEPTION (VolumeEncryptionNotCompleted);

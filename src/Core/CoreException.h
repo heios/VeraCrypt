@@ -44,6 +44,7 @@ namespace VeraCrypt
 	TC_EXCEPTION_NODECL (ElevationFailed); \
 	TC_EXCEPTION_NODECL (FilesystemDismountFailed); \
 	TC_EXCEPTION_NODECL (RootDeviceUnavailable); \
+	TC_EXCEPTION_NODECL (TrimDoneDismountFailed); \
 	TC_EXCEPTION (DriveLetterUnavailable); \
 	TC_EXCEPTION (DriverError); \
 	TC_EXCEPTION (ElevationBlocked); \
@@ -69,6 +70,23 @@ namespace VeraCrypt
 	TC_EXCEPTION (VolumeSlotUnavailable);
 
 	TC_EXCEPTION_SET;
+
+	// Free space was trimmed, but the volume could not be dismounted afterwards. The subject, if not
+	// empty, is a reason that replaces the dismount error, such as a device left suspended.
+	struct TrimDoneDismountFailed : public TrimDismountFailed
+	{
+		TrimDoneDismountFailed () : TrimmedBytes (0) { }
+		TrimDoneDismountFailed (const string &message, const wstring &subject, uint64 trimmedBytes, shared_ptr <Exception> dismountError)
+			: TrimDismountFailed (message, subject), DismountError (dismountError), TrimmedBytes (trimmedBytes) { }
+		TC_SERIALIZABLE_EXCEPTION (TrimDoneDismountFailed);
+
+		shared_ptr <Exception> GetDismountError () const { return DismountError; }
+		uint64 GetTrimmedBytes () const { return TrimmedBytes; }
+
+	protected:
+		shared_ptr <Exception> DismountError;
+		uint64 TrimmedBytes;
+	};
 
 #undef TC_EXCEPTION
 }

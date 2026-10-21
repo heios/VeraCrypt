@@ -35,6 +35,22 @@ namespace VeraCrypt
 		ExecutedProcessFailed::SerializeData (stream);
 	}
 
+	void TrimDoneDismountFailed::DeserializeData (shared_ptr <Stream> stream)
+	{
+		TrimDismountFailed::DeserializeData (stream);
+		Serializer sr (stream);
+		sr.Deserialize ("TrimmedBytes", TrimmedBytes);
+		DismountError = Serializable::DeserializeNew <Exception> (stream);
+	}
+
+	void TrimDoneDismountFailed::SerializeData (shared_ptr <Stream> stream) const
+	{
+		TrimDismountFailed::SerializeData (stream);
+		Serializer sr (stream);
+		sr.Serialize ("TrimmedBytes", TrimmedBytes);
+		DismountError->Serialize (stream);
+	}
+
 #define TC_EXCEPTION(TYPE) TC_SERIALIZER_FACTORY_ADD(TYPE)
 #undef TC_EXCEPTION_NODECL
 #define TC_EXCEPTION_NODECL(TYPE) TC_SERIALIZER_FACTORY_ADD(TYPE)
