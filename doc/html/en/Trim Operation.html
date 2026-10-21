@@ -45,14 +45,17 @@ On Windows, VeraCrypt allows users to control the trim operation for both non-sy
 <li>For <a href="System%20Encryption.html">system encryption</a>, trim is enabled by default (unless a <a href="Hidden%20Operating%20System.html">hidden operating system</a> is running). Users can disable trim by navigating to "System -> Settings" and checking the option "Block TRIM command on system partition/drive."</li>
 </ul>
 
-Under Linux, VeraCrypt does not block the trim operation on volumes using the native Linux kernel cryptographic services, which is the default setting. To block TRIM on Linux, users should either enable the "do not use kernel cryptographic services" option in VeraCrypt's Preferences (applicable only to volumes mounted afterward) or use the <code>--mount-options=nokernelcrypto</code> switch in the command line when mounting.
+Under Linux, VeraCrypt blocks the trim operation by default. Users can allow trim by enabling the option "Allow TRIM command for volumes (kernel cryptographic services only)" in VeraCrypt's Preferences (System Integration tab; applicable only to volumes mounted afterward) or by using the <code>--mount-options=allowtrim</code> switch in the command line when mounting. Trim is then allowed only on normal volumes hosted on a partition or disk device, mounted using the native Linux kernel cryptographic services and without read-only or hidden volume protection. Trim on an outer volume destroys a hidden volume within it.
 <br>
 <br>
-Under macOS, VeraCrypt does not support the trim operation. Therefore, trim is always blocked on all volumes.
+Under macOS, trim is always blocked while a volume is mounted.
+<br>
+<br>
+Under Linux and macOS, the free space of a normal volume hosted on a partition or disk device can be trimmed as part of unmounting it, using the "Unmount with TRIM" button in the main window or <code>--unmount --trim</code> in the command line (see <a href="Command%20Line%20Usage%20for%20Unix.html">Command Line Usage for Linux and macOS</a>). Under macOS, only exFAT filesystems are supported. Under Linux, a volume mounted using kernel cryptographic services is trimmed by its filesystem, if the filesystem supports trim; otherwise, only exFAT filesystems mounted with the in-kernel exFAT driver are supported. A hidden volume within the trimmed volume is destroyed.
 <br>
 <br>
 In cases where trim operations occur, the adversary will be able to tell which sectors contain free space (and may be able to use this information for
  further analysis and attacks) and <a href="Plausible%20Deniability.html" style="text-align:left; color:#0080c0; text-decoration:none">
-plausible deniability</a> may be negatively affected. In order to avoid these issues, users should either disable trim in VeraCrypt settings as previously described or make sure VeraCrypt volumes are not located on drives that use the trim operation.</div>
+plausible deniability</a> may be negatively affected. In order to avoid these issues, users should either disable trim in VeraCrypt settings as previously described and not unmount volumes with trim, or make sure VeraCrypt volumes are not located on drives that use the trim operation.</div>
 <p>To find out whether a device uses the trim operation, please refer to documentation supplied with the device or contact the vendor/manufacturer.</p>
 </div><div class="ClearBoth"></div></body></html>

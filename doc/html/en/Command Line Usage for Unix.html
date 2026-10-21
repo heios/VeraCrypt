@@ -74,6 +74,10 @@
 <td>Unmount a mounted volume. If no mounted volume is specified, all mounted VeraCrypt volumes are unmounted. <em>--dismount</em> is deprecated; use <em>--unmount</em>.</td>
 </tr>
 <tr>
+<td><em>--trim</em></td>
+<td>Use with <em>--unmount</em> and exactly one mounted volume (macOS and Linux only): unmount the volume and TRIM its free space on the host device. Afterwards the drive, and anyone examining it, can tell which parts of the volume hold no data, and a hidden volume inside the volume is destroyed. Only a normal volume hosted on a partition or disk device, mounted without read-only or hidden volume protection, can be trimmed. On Linux, a volume mounted using kernel cryptographic services is trimmed by its filesystem, if it supports TRIM, before it is unmounted; if VeraCrypt is terminated during this, the volume passes TRIM requests to the host device until it is unmounted. Otherwise, only exFAT is supported: after the filesystem has been checked, the volume is unmounted and the clusters marked free in its allocation bitmap are trimmed. This requires the volume to have been mounted with administrator privileges. Cannot be combined with <em>--force</em>.</td>
+</tr>
+<tr>
 <td><em>--delete-token-keyfiles</em></td>
 <td>Delete keyfiles from security tokens.</td>
 </tr>
@@ -197,7 +201,7 @@
 </tr>
 <tr>
 <td><em>-m OPTION1[,OPTION2,...]</em> or <em>--mount-options=OPTION1[,OPTION2,...]</em></td>
-<td>Set VeraCrypt volume mount options. Supported options are <em>headerbak</em>, <em>nokernelcrypto</em>, <em>readonly</em> or <em>ro</em>, <em>system</em>, and <em>timestamp</em> or <em>ts</em>. On Linux, <em>kernelntfs</em> enables in-kernel NTFS driver selection for the current mount when NTFS is detected and no filesystem type was supplied.</td>
+<td>Set VeraCrypt volume mount options. Supported options are <em>headerbak</em>, <em>nokernelcrypto</em>, <em>readonly</em> or <em>ro</em>, <em>system</em>, and <em>timestamp</em> or <em>ts</em>. On Linux, <em>kernelntfs</em> enables in-kernel NTFS driver selection for the current mount when NTFS is detected and no filesystem type was supplied, and <em>allowtrim</em> lets the filesystem pass TRIM requests to the host device, for example for <code>fstrim</code>. <em>allowtrim</em> applies only to a normal volume hosted on a partition or disk device, mounted without read-only or hidden volume protection, which must then be mounted using kernel cryptographic services; it is ignored for other volumes. As with <em>--trim</em>, the drive then reveals which parts of the volume hold no data, and TRIM on an outer volume destroys a hidden volume inside it.</td>
 </tr>
 <tr>
 <td><em>--new-hash=HASH</em></td>
