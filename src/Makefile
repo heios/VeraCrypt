@@ -724,6 +724,15 @@ endif
 install:
 	$(MAKE) -C Main -f Main.make NAME=Main install
 
+# Parser test for TRIM after unmount (Tests/exfat_free_space_test.cpp); no root
+.PHONY: test-exfat
+test-exfat:
+	$(MAKE) -C Platform -f Platform.make NAME=Platform
+	rm -f $(BASE_DIR)/exfat_free_space_test
+	$(CXX) $(filter-out -MMD -gfull,$(CXXFLAGS)) -o $(BASE_DIR)/exfat_free_space_test $(BASE_DIR)/../Tests/exfat_free_space_test.cpp $(BASE_DIR)/Platform/Platform.a $(LFLAGS)
+	$(BASE_DIR)/exfat_free_space_test
+	rm -f $(BASE_DIR)/exfat_free_space_test
+
 package:
 	$(MAKE) -C Main -f Main.make NAME=Main package
 

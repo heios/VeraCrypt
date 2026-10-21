@@ -41,6 +41,9 @@ src/Setup/MacOSX/*.pkg
 *.o.64
 .DS_Store
 
+# VC test binaries (make test-exfat)
+src/exfat_free_space_test
+
 # wxWidgets Linux build artifacts
 src/wxrelease
 src/wxdebug
