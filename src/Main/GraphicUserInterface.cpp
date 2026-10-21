@@ -2483,6 +2483,20 @@ namespace VeraCrypt
 		dlg.Run();
 	}
 
+	// Runs the routine behind the wait dialog of the main window
+	WaitThreadUI* GraphicUserInterface::GetWaitThreadUI (WaitThreadRoutine *pRoutine) const
+	{
+		struct DialogWaitThreadUI : public WaitThreadUI
+		{
+			const GraphicUserInterface *Interface;
+
+			DialogWaitThreadUI (const GraphicUserInterface *gui, WaitThreadRoutine *pRoutine) : WaitThreadUI (pRoutine), Interface (gui) { }
+			virtual void Run () { Interface->ExecuteWaitThreadRoutine (Interface->GetTopWindow(), m_pRoutine); }
+		};
+
+		return new DialogWaitThreadUI (this, pRoutine);
+	}
+
 	DEFINE_EVENT_TYPE (TC_EVENT_THREAD_EXITING);
 
 	GraphicUserInterface *Gui = nullptr;

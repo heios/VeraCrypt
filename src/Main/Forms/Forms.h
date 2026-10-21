@@ -91,6 +91,7 @@ namespace VeraCrypt
 			wxButton* VolumeButton;
 			wxButton* MountAllDevicesButton;
 			wxButton* DismountAllButton;
+			wxButton* DismountTrimButton;
 			wxButton* ExitButton;
 
 			// Virtual event handlers, override them in your derived class
@@ -146,6 +147,7 @@ namespace VeraCrypt
 			virtual void OnVolumeToolsButtonClick( wxCommandEvent& event ) { event.Skip(); }
 			virtual void OnSelectDeviceButtonClick( wxCommandEvent& event ) { event.Skip(); }
 			virtual void OnVolumeButtonClick( wxCommandEvent& event ) { event.Skip(); }
+			virtual void OnDismountTrimButtonClick( wxCommandEvent& event ) { event.Skip(); }
 			virtual void OnExitButtonClick( wxCommandEvent& event ) { event.Skip(); }
 
 

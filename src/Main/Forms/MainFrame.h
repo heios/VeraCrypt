@@ -136,6 +136,7 @@ namespace VeraCrypt
 		void OnDefaultKeyfilesMenuItemSelected (wxCommandEvent& event);
 		void OnDefaultMountParametersMenuItemSelected( wxCommandEvent& event );
 		void OnDismountAllButtonClick (wxCommandEvent& event);
+		void OnDismountTrimButtonClick (wxCommandEvent& event);
 		void OnDismountVolumeMenuItemSelected (wxCommandEvent& event) { DismountVolume(); }
 		void OnDownloadsMenuItemSelected (wxCommandEvent& event) { Gui->OpenHomepageLink (this, L"downloads"); }
 		void OnEncryptionTestMenuItemSelected (wxCommandEvent& event);

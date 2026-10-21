@@ -347,6 +347,20 @@ namespace VeraCrypt
 #endif
 	}
 
+	void MainFrame::OnDismountTrimButtonClick (wxCommandEvent& event)
+	{
+		try
+		{
+			shared_ptr <VolumeInfo> volume = GetSelectedVolume();
+			if (volume)
+				Gui->DismountVolumeAndTrim (volume);
+		}
+		catch (exception &e)
+		{
+			Gui->ShowError (e);
+		}
+	}
+
 	shared_ptr <VolumeInfo> MainFrame::GetSelectedVolume () const
 	{
 #ifdef TC_MACOSX
@@ -381,6 +395,25 @@ namespace VeraCrypt
 
 		ExitButton->SetLabel (LangString["IDCLOSE"]);
 		MountAllDevicesButton->SetLabel (LangString["LINUX_MOUNT_ALL_DEV"]);
+#endif
+
+#ifndef TC_MACOSX
+		// Unmounting with TRIM is only implemented for macOS: take its cell out of the button row
+		wxWindow *trimBox = DismountTrimButton->GetParent();
+		wxSizer *trimCell = trimBox->GetContainingSizer();
+		for (wxSizerItemList::compatibility_iterator node = LowStaticBoxSizer->GetChildren().GetFirst(); node; node = node->GetNext())
+		{
+			wxGridSizer *row = dynamic_cast <wxGridSizer *> (node->GetData()->GetSizer());
+			if (row && row->Detach (trimCell))
+			{
+				row->SetCols (row->GetCols() - 1);
+				// The static box sizer owns the box; the button is kept for the base class
+				DismountTrimButton->Reparent (this);
+				DismountTrimButton->Hide();
+				delete trimCell;
+				break;
+			}
+		}
 #endif
 
 #ifdef TC_WINDOWS
@@ -1789,6 +1822,14 @@ namespace VeraCrypt
 
 		VolumeButton->SetLabel (mounted ? LangString["UNMOUNT_BUTTON"] : LangString["MOUNT_BUTTON"]);
 		VolumePropertiesButton->Enable (mounted);
+
+		// With no mounted volume selected, the tooltip tells which volumes can be trimmed
+		wstring trimReason = mounted ? L"" : L"TRIM_UNMOUNT_BUTTON_HELP";
+		DismountTrimButton->Enable (mounted && Core->IsTrimSupported (GetSelectedVolume(), trimReason));
+		if (trimReason.empty())
+			DismountTrimButton->UnsetToolTip();
+		else
+			DismountTrimButton->SetToolTip (UserInterface::TrimReasonToMessage (trimReason));
 
 		DismountVolumeMenuItem->Enable (mounted);
 		MountVolumeMenuItem->Enable (!mounted);

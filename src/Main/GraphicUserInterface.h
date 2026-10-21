@@ -109,6 +109,7 @@ namespace VeraCrypt
 		VolumeInfoList GetMountedVolumesForUI () const;
 		WaitDialog* GetWaitDialog () { return mWaitDialog; }
 		void ExecuteWaitThreadRoutine (wxWindow *parent, WaitThreadRoutine *pRoutine) const;
+		virtual WaitThreadUI* GetWaitThreadUI (WaitThreadRoutine *pRoutine) const;
 
 #ifdef TC_MACOSX
 		virtual void MacOpenFiles (const wxArrayString &fileNames);
