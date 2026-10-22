@@ -338,7 +338,7 @@ MainFrameBase::MainFrameBase( wxWindow* parent, wxWindowID id, const wxString& t
 	LowStaticBoxSizer->Add( 0, 0, 0, 0, 5 );
 
 	wxGridSizer* gSizer2;
-	gSizer2 = new wxGridSizer( 1, 4, 0, 0 );
+	gSizer2 = new wxGridSizer( 1, 5, 0, 0 );
 
 	wxStaticBoxSizer* sbSizer4;
 	sbSizer4 = new wxStaticBoxSizer( new wxStaticBox( LowStaticBoxSizer->GetStaticBox(), wxID_ANY, wxEmptyString ), wxVERTICAL );
@@ -377,6 +377,18 @@ MainFrameBase::MainFrameBase( wxWindow* parent, wxWindowID id, const wxString& t
 
 
 	gSizer2->Add( sbSizer42, 1, wxEXPAND, 5 );
+
+	wxStaticBoxSizer* sbSizer44;
+	sbSizer44 = new wxStaticBoxSizer( new wxStaticBox( LowStaticBoxSizer->GetStaticBox(), wxID_ANY, wxEmptyString ), wxVERTICAL );
+
+	sbSizer44->SetMinSize( wxSize( 139,-1 ) );
+	DismountTrimButton = new wxButton( sbSizer44->GetStaticBox(), wxID_ANY, _("TRIM_UNMOUNT_BUTTON"), wxDefaultPosition, wxDefaultSize, 0 );
+	DismountTrimButton->SetMinSize( wxSize( -1,32 ) );
+
+	sbSizer44->Add( DismountTrimButton, 1, wxEXPAND|wxALL, 2 );
+
+
+	gSizer2->Add( sbSizer44, 1, wxEXPAND, 5 );
 
 	wxStaticBoxSizer* sbSizer43;
 	sbSizer43 = new wxStaticBoxSizer( new wxStaticBox( LowStaticBoxSizer->GetStaticBox(), wxID_ANY, wxEmptyString ), wxVERTICAL );
@@ -480,6 +492,7 @@ MainFrameBase::MainFrameBase( wxWindow* parent, wxWindowID id, const wxString& t
 	VolumeButton->Connect( wxEVT_COMMAND_BUTTON_CLICKED, wxCommandEventHandler( MainFrameBase::OnVolumeButtonClick ), NULL, this );
 	MountAllDevicesButton->Connect( wxEVT_COMMAND_BUTTON_CLICKED, wxCommandEventHandler( MainFrameBase::OnMountAllDevicesButtonClick ), NULL, this );
 	DismountAllButton->Connect( wxEVT_COMMAND_BUTTON_CLICKED, wxCommandEventHandler( MainFrameBase::OnDismountAllButtonClick ), NULL, this );
+	DismountTrimButton->Connect( wxEVT_COMMAND_BUTTON_CLICKED, wxCommandEventHandler( MainFrameBase::OnDismountTrimButtonClick ), NULL, this );
 	ExitButton->Connect( wxEVT_COMMAND_BUTTON_CLICKED, wxCommandEventHandler( MainFrameBase::OnExitButtonClick ), NULL, this );
 }
 
@@ -508,6 +521,7 @@ MainFrameBase::~MainFrameBase()
 	VolumeButton->Disconnect( wxEVT_COMMAND_BUTTON_CLICKED, wxCommandEventHandler( MainFrameBase::OnVolumeButtonClick ), NULL, this );
 	MountAllDevicesButton->Disconnect( wxEVT_COMMAND_BUTTON_CLICKED, wxCommandEventHandler( MainFrameBase::OnMountAllDevicesButtonClick ), NULL, this );
 	DismountAllButton->Disconnect( wxEVT_COMMAND_BUTTON_CLICKED, wxCommandEventHandler( MainFrameBase::OnDismountAllButtonClick ), NULL, this );
+	DismountTrimButton->Disconnect( wxEVT_COMMAND_BUTTON_CLICKED, wxCommandEventHandler( MainFrameBase::OnDismountTrimButtonClick ), NULL, this );
 	ExitButton->Disconnect( wxEVT_COMMAND_BUTTON_CLICKED, wxCommandEventHandler( MainFrameBase::OnExitButtonClick ), NULL, this );
 
 }

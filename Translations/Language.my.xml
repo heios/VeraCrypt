@@ -1735,6 +1735,8 @@
     <entry lang="en" key="TRIM_IMAGE_UNREADABLE">The volume image could not be read.</entry>
     <entry lang="en" key="TRIM_MACFUSE_KERNEL_UNTESTED">Unmount with TRIM has not yet been tested with the macFUSE kernel extension.</entry>
     <entry lang="en" key="TRIM_IMAGE_MOUNT_CHANGED">The volume image is no longer served by the mount that VeraCrypt created for it.</entry>
+    <entry lang="en" key="TRIM_UNMOUNT_BUTTON">Unmount with TRIM</entry>
+    <entry lang="en" key="TRIM_UNMOUNT_BUTTON_HELP">Only normal exFAT volumes hosted on a partition or disk device can be unmounted with TRIM.</entry>
   </localization>
   <xs:schema xmlns:xs="http://www.w3.org/2001/XMLSchema" attributeFormDefault="unqualified" elementFormDefault="qualified">
     <xs:element name="VeraCrypt">

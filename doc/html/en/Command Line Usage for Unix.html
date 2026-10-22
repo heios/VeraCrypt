@@ -284,6 +284,10 @@
 <td>Use the specified security token PIN.</td>
 </tr>
 <tr>
+<td><em>--trim</em></td>
+<td>Use with <em>--unmount</em> and exactly one mounted volume (macOS only): unmount the volume and TRIM its free space on the host device. Afterwards the drive, and anyone examining it, can tell which parts of the volume hold no data, and a hidden volume inside the volume is destroyed. Only a normal exFAT volume hosted on a partition or disk device, mounted without read-only or hidden volume protection, can be trimmed: after the filesystem has been checked, the volume is unmounted and the clusters marked free in its allocation bitmap are trimmed. This requires the volume to have been mounted with administrator privileges. Not yet available while the macFUSE kernel extension is in use. Cannot be combined with <em>--force</em>. The exit status is 1 unless the free space is trimmed completely, even if the volume was unmounted.</td>
+</tr>
+<tr>
 <td><em>--use-dummy-sudo-password</em></td>
 <td>Use a dummy password in <code>sudo</code> to detect whether sudo is already authenticated. This option is available on Linux and FreeBSD builds.</td>
 </tr>
