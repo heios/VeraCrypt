@@ -1,7 +1,8 @@
 # macOS lifecycle regression checks
 
-Run these checks on macOS with Xcode Command Line Tools and Python 3. They do not
-require administrator privileges, mounted containers, or an installed test app.
+Run these checks on macOS with Xcode Command Line Tools and Python 3. Apart from
+`test_macos_trim.py`, they do not require administrator privileges, mounted
+containers, or an installed test app.
 
 Build the matching VeraCrypt sources first. Use a clean build after changing
 headers: the current makefiles do not track every header dependency. The archive
@@ -88,6 +89,54 @@ meanwhile is honored, including unmount on quit; and when service exit cannot be
 confirmed, a warning keeps the background application from exiting silently.
 That warning stays on screen until the test ends. Failed-run artifacts are
 retained for diagnosis; use `--keep-artifacts` to retain successful runs as well.
+
+`test_macos_trim.py` is an end-to-end check of "Unmount with TRIM" on a real
+VeraCrypt build. It needs administrator privileges and a FUSE-T or macFUSE FSKit
+build; with the macFUSE kernel extension, VeraCrypt refuses TRIM and the test
+reports SKIP. With FUSE-T, VeraCrypt mounts through a local SMB server
+(`mount_smbfs` to `fuse-t._smb._tcp.local`), so a firewall that blocks it makes
+mounts fail with "The operation did not finish in time". The test creates
+zero-filled disk images in a private temporary directory, so that the blocks
+TRIM releases can be counted, and creates VeraCrypt volumes on them, or for one
+refusal in a file container. Before it writes to, formats, mounts or trims a
+device, it checks with `hdiutil info` that the device belongs to one of its own
+images or to the volume image that VeraCrypt has just attached for it. It
+detaches and deletes its images at the end, also after a failure or Ctrl-C.
+
+Each scenario fills an exFAT filesystem in a known way, runs `--unmount --trim`
+and compares the result with an independent exFAT reader. Only free clusters may
+change, and they must read as zeros. No 4 KiB block inside the trimmed ranges
+may stay allocated in the image file, except the 16 KiB chunks that DiskImages2
+rewrites at unaligned extent edges, and the amount released must lie between
+those blocks and all blocks in the ranges, with 64 KiB of slack. Both header
+groups must be unchanged, and after remounting `fsck_exfat` must be clean and
+every file unchanged. A refusal must leave the host unchanged and the volume
+mounted; for a busy virtual device, VeraCrypt has already unmounted the
+filesystem and keeps the volume attached. The `host-4k` scenario is a partial
+check: the test attaches its host with `hdiutil attach -blocksize`, through the
+legacy disk image framework, which ignores UNMAP.
+
+A full run needs about 2800 MiB (2.7 GiB) of free space in the temporary
+directory (`TMPDIR`, which is `/tmp` under `sudo`) and takes about 5 minutes;
+`--quick` needs 384 MiB and takes about 2 minutes, both measured on an Apple
+Silicon Mac with a FUSE-T build. Do not open the test's volumes in Finder while
+it runs: Finder writes to them, and the checks report a failure. See `--help`
+for the other options. To run the 10 quick scenarios, then all 23:
+
+```sh
+sudo python3 Tests/test_macos_trim.py --binary "$VC_TEST_BUILD_SRC/Main/VeraCrypt" --quick
+sudo python3 Tests/test_macos_trim.py --binary "$VC_TEST_BUILD_SRC/Main/VeraCrypt"
+```
+
+The test exits with 0 when every check passes, with 1 when a check fails or the
+test refuses to start, for example because VeraCrypt cannot verify another
+mounted volume, and with 2 on SKIP or on a usage error. It prints its seed at
+the start; `--seed` repeats a run. `--oracle-selftest` checks the exFAT reader
+and the scenario generators on plain exFAT images, without VeraCrypt or root:
+
+```sh
+python3 Tests/test_macos_trim.py --oracle-selftest
+```
 
 Use disposable containers for ordinary create/write/fsync/unmount/remount checks,
 released-client compatibility, and user/root ownership combinations. Keep logs
