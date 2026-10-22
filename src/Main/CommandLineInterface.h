@@ -67,6 +67,7 @@ namespace VeraCrypt
 #ifdef TC_LINUX
 		bool ArgEmergencyUnmount;
 #endif
+		bool ArgTrim;
 		shared_ptr <FilePath> ArgFilePath;
 		VolumeCreationOptions::FilesystemType::Enum ArgFilesystem;
 		bool ArgForce;

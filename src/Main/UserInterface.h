@@ -42,6 +42,7 @@ namespace VeraCrypt
 		virtual void DismountAllVolumes (bool ignoreOpenFiles = false, bool interactive = true) const;
 		virtual void DismountVolume (shared_ptr <VolumeInfo> volume, bool ignoreOpenFiles = false, bool interactive = true) const;
 		virtual void DismountVolumes (VolumeInfoList volumes, bool ignoreOpenFiles = false, bool interactive = true, bool emergencyCleanup = false) const;
+		virtual bool DismountVolumeAndTrim (shared_ptr <VolumeInfo> volume, bool interactive = true) const;
 		virtual void DisplayVolumeProperties (const VolumeInfoList &volumes) const;
 		virtual void DoShowError (const wxString &message) const = 0;
 		virtual void DoShowInfo (const wxString &message) const = 0;
@@ -81,6 +82,7 @@ namespace VeraCrypt
 		virtual wxString SpeedToString (uint64 speed) const;
 		virtual void Test () const;
 		virtual wxString TimeSpanToString (uint64 seconds) const;
+		static wxString TrimReasonToMessage (const wstring &reason);
 		virtual bool VolumeHasUnrecommendedExtension (const VolumePath &path) const;
 		virtual void Yield () const = 0;
 		virtual WaitThreadUI* GetWaitThreadUI(WaitThreadRoutine *pRoutine) const { return new WaitThreadUI(pRoutine);}

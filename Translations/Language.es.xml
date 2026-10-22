@@ -1707,6 +1707,32 @@
     <entry lang="en" key="LINUX_REQUESTER_BACKED_VOLUME">VeraCrypt could not open the volume file with administrator privileges, so it opened the file with your user account's access rights:\n{0}\n\nKeep the source share mounted and your user session active until this VeraCrypt volume is unmounted. Ejecting the share or logging out can lose data. For regular use, store the volume where VeraCrypt can open it with administrator privileges, for example on a share mounted with the kernel CIFS client.</entry>
     <entry lang="en" key="PCSC_ERROR">Smart card error</entry>
     <entry lang="en" key="TRIM_EXFAT_UNSUPPORTED">The exFAT filesystem has a structure that cannot be trimmed safely.</entry>
+    <entry lang="en" key="TRIM_CONFIRM">Unmount {0} and TRIM its free space on the host device?\n\nAfterwards the drive, and anyone examining it, can tell which parts of the volume hold no data. If this volume contains a hidden volume, the hidden volume will be destroyed.</entry>
+    <entry lang="en" key="TRIM_DONE">{0} was unmounted and {1} of free space was trimmed.</entry>
+    <entry lang="en" key="TRIM_SKIPPED">{0} was unmounted, but its free space was not trimmed:\n{1}</entry>
+    <entry lang="en" key="TRIM_PARTIAL">{0} was unmounted, but only {2} of its free space was trimmed:\n{1}</entry>
+    <entry lang="en" key="TRIM_NOT_PERFORMED">TRIM was not performed and the volume is still mounted.</entry>
+    <entry lang="en" key="TRIM_VOLUME_IN_USE">The volume contains files or directories that are in use.</entry>
+    <entry lang="en" key="TRIM_NOT_SUPPORTED_ON_PLATFORM">Unmounting with TRIM is not supported on this platform.</entry>
+    <entry lang="en" key="TRIM_UNSUPPORTED_VOLUME_TYPE">Only normal (non-hidden) volumes in the current volume format can be trimmed.</entry>
+    <entry lang="en" key="TRIM_UNSUPPORTED_PROTECTION">The volume is mounted read-only or with hidden volume protection.</entry>
+    <entry lang="en" key="TRIM_UNSUPPORTED_HOST">Only volumes hosted on a partition or disk device can be trimmed, not file containers.</entry>
+    <entry lang="en" key="TRIM_UNSUPPORTED_FILESYSTEM">Only exFAT filesystems can be trimmed.</entry>
+    <entry lang="en" key="TRIM_FILESYSTEM_NO_TRIM">The volume has no mounted filesystem that supports TRIM.</entry>
+    <entry lang="en" key="TRIM_HOST_DEVICE_UNSUPPORTED">The host device does not support TRIM.</entry>
+    <entry lang="en" key="TRIM_NO_MOUNT_RECORD">No mount record exists for the host device. The volume must be mounted with administrator privileges to be trimmed. If VeraCrypt did not ask for them, mount it again with sudo veracrypt --text --mount.</entry>
+    <entry lang="en" key="TRIM_MOUNT_RECORD_INVALID">The mount record of the host device is invalid.</entry>
+    <entry lang="en" key="TRIM_HOST_DEVICE_CHANGED">The host device no longer holds the volume that was mounted.</entry>
+    <entry lang="en" key="TRIM_FILESYSTEM_CHECK_FAILED">The exFAT filesystem check reported problems or could not be run. Repair the filesystem before trimming it.</entry>
+    <entry lang="en" key="TRIM_UNMAP_FAILED">The host device rejected a TRIM request.</entry>
+    <entry lang="en" key="TRIM_VOLUME_CHANGED">The mounted volume has changed since it was selected. Refresh the volume list and try again.</entry>
+    <entry lang="en" key="TRIM_VOLUME_REMOUNTED">The filesystem was mounted again while it was being checked.</entry>
+    <entry lang="en" key="TRIM_VOLUME_SIZE_MISMATCH">The size of the volume image differs from the size of the mounted volume.</entry>
+    <entry lang="en" key="TRIM_FREE_SPACE_MISMATCH">The allocation bitmap shows more free space than the filesystem driver reported.</entry>
+    <entry lang="en" key="TRIM_UNMOUNT_FAILED">The filesystem was unmounted, but VeraCrypt could not complete unmounting the volume. TRIM was not performed.</entry>
+    <entry lang="en" key="TRIM_IMAGE_UNREADABLE">The volume image could not be read.</entry>
+    <entry lang="en" key="TRIM_MACFUSE_KERNEL_UNTESTED">Unmount with TRIM has not yet been tested with the macFUSE kernel extension.</entry>
+    <entry lang="en" key="TRIM_IMAGE_MOUNT_CHANGED">The volume image is no longer served by the mount that VeraCrypt created for it.</entry>
 </localization>
   <xs:schema attributeFormDefault="unqualified" elementFormDefault="qualified" xmlns:xs="http://www.w3.org/2001/XMLSchema">
     <xs:element name="VeraCrypt">

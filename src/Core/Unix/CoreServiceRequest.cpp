@@ -127,6 +127,25 @@ namespace VeraCrypt
 		MountedVolumeInfo->Serialize (stream);
 	}
 
+	// DismountVolumeAndTrimRequest
+	void DismountVolumeAndTrimRequest::DeserializeData (shared_ptr <Stream> stream)
+	{
+		CoreServiceRequest::DeserializeData (stream);
+		MountedVolumeInfo = Serializable::DeserializeNew <VolumeInfo> (stream);
+	}
+
+	// Always root: the mount record is readable by root only, and the host device is written to
+	bool DismountVolumeAndTrimRequest::RequiresElevation () const
+	{
+		return !Core->HasAdminPrivileges();
+	}
+
+	void DismountVolumeAndTrimRequest::SerializeData (shared_ptr <Stream> stream) const
+	{
+		CoreServiceRequest::SerializeData (stream);
+		MountedVolumeInfo->Serialize (stream);
+	}
+
 #ifdef TC_LINUX
 	// EmergencyDismountVolumeRequest
 	void EmergencyDismountVolumeRequest::DeserializeData (shared_ptr <Stream> stream)
@@ -341,6 +360,7 @@ namespace VeraCrypt
 	TC_SERIALIZER_FACTORY_ADD_CLASS (CheckFilesystemRequest);
 	TC_SERIALIZER_FACTORY_ADD_CLASS (DismountFilesystemRequest);
 	TC_SERIALIZER_FACTORY_ADD_CLASS (DismountVolumeRequest);
+	TC_SERIALIZER_FACTORY_ADD_CLASS (DismountVolumeAndTrimRequest);
 #ifdef TC_LINUX
 	TC_SERIALIZER_FACTORY_ADD_CLASS (EmergencyDismountVolumeRequest);
 #endif

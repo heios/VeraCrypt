@@ -182,9 +182,9 @@ namespace VeraCrypt
 			mf->Type = sysMountList[i].f_fstypename;
 #ifdef TC_MACOSX
 			mf->Owner = sysMountList[i].f_owner;
+#endif
 			mf->MountId[0] = sysMountList[i].f_fsid.val[0];
 			mf->MountId[1] = sysMountList[i].f_fsid.val[1];
-#endif
 
 			if ((devicePath.IsEmpty() || devicePath == mf->Device) && (mountPoint.IsEmpty() || mountPoint == mf->MountPoint))
 				mountedFilesystems.push_back (mf);

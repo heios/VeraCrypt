@@ -199,6 +199,71 @@ namespace VeraCrypt
 		throw DismountServiceCleanupFailed (failures.front().what(), details);
 	}
 
+	// Core reports why TRIM is not possible as a LangString key, which may be followed by ": " and an
+	// untranslated detail, such as the exFAT check that failed. Text that does not start with a key is shown as is.
+	wxString UserInterface::TrimReasonToMessage (const wstring &reason)
+	{
+		const size_t separator = reason.find (L": ");
+		const string key = StringConverter::ToSingle (reason.substr (0, separator), true);
+		if (!LangString.Exists (key))
+			return wxString (reason);
+
+		wxString message = LangString[key];
+		if (separator != wstring::npos)
+			message << L"\n" << reason.substr (separator + 2);
+		return message;
+	}
+
+	bool UserInterface::DismountVolumeAndTrim (shared_ptr <VolumeInfo> volume, bool interactive) const
+	{
+		wstring reason;
+		if (!Core->IsTrimSupported (volume, reason))
+			throw TrimFailed (SRC_POS, reason);
+
+		if (interactive && !AskYesNo (StringFormatter (LangString["TRIM_CONFIRM"], wstring (volume->Path)), false, true))
+			return false;
+
+		// The filesystem check can take minutes; the GUI runs it behind its wait dialog
+		struct TrimRoutine : public WaitThreadRoutine
+		{
+			shared_ptr <VolumeInfo> Volume;
+			wstring SkipReason;
+			uint64 TrimmedBytes;
+
+			TrimRoutine (shared_ptr <VolumeInfo> volume) : Volume (volume), TrimmedBytes (0) { }
+			virtual void ExecutionCode () { TrimmedBytes = Core->DismountVolumeAndTrim (Volume, SkipReason); }
+		} routine (volume);
+
+		try
+		{
+			BusyScope busy (this);
+			unique_ptr <WaitThreadUI> waitUI (GetWaitThreadUI (&routine));
+			waitUI->Run();
+		}
+		catch (MountedVolumeInUse &)
+		{
+			throw TrimFailed (SRC_POS, L"TRIM_VOLUME_IN_USE");
+		}
+		catch (DismountServiceCleanupFailed &e)
+		{
+			// Keep the type, so the warning about encryption keys comes first
+			wstring details (e.GetSubject());
+			details += (details.empty() ? L"" : L"\n\n") + LangString["TRIM_UNMOUNT_FAILED"].ToStdWstring();
+			throw DismountServiceCleanupFailed (e.what(), details);
+		}
+
+		// The volume is unmounted from here on
+		const wstring path (volume->Path), why (TrimReasonToMessage (routine.SkipReason)), size (SizeToString (routine.TrimmedBytes));
+		if (routine.SkipReason.empty())
+			ShowInfo (StringFormatter (LangString["TRIM_DONE"], path, size));
+		else if (routine.TrimmedBytes)
+			ShowWarning (StringFormatter (LangString["TRIM_PARTIAL"], path, why, size));
+		else
+			ShowWarning (StringFormatter (LangString["TRIM_SKIPPED"], path, why));
+
+		return routine.SkipReason.empty();
+	}
+
 	void UserInterface::DismountVolumes (VolumeInfoList volumes, bool ignoreOpenFiles, bool interactive, bool emergencyCleanupRequested) const
 	{
 #ifndef TC_LINUX
@@ -464,7 +529,10 @@ namespace VeraCrypt
 					else
 						message << L"\n";
 
-					message << e->GetSubject();
+					if (dynamic_cast <const TrimFailed *> (e) || dynamic_cast <const TrimDismountFailed *> (e))
+						message << TrimReasonToMessage (e->GetSubject());
+					else
+						message << e->GetSubject();
 				}
 
 #ifdef TC_UNIX
@@ -635,6 +703,8 @@ namespace VeraCrypt
 		EX2MSG (StringConversionFailed,				LangString["LINUX_EX2MSG_STRINGCONVERSIONFAILED"]);
 		EX2MSG (StringFormatterException,			LangString["LINUX_EX2MSG_STRINGFORMATTEREXCEPTION"]);
 		EX2MSG (TemporaryDirectoryFailure,			LangString["LINUX_EX2MSG_TEMPORARYDIRECTORYFAILURE"]);
+		EX2MSG (TrimFailed,							LangString["TRIM_NOT_PERFORMED"]);
+		EX2MSG (TrimDismountFailed,					LangString["TRIM_UNMOUNT_FAILED"]);
 		EX2MSG (UnportablePassword,					LangString["UNSUPPORTED_CHARS_IN_PWD"]);
 
 		EX2MSG (CommandAPDUNotValid,				LangString["COMMAND_APDU_INVALID"]);
@@ -1359,6 +1429,16 @@ const FileManager fileManagers[] = {
 			return true;
 
 		case CommandId::DismountVolumes:
+			if (cmdLine.ArgTrim)
+			{
+				// The command line parser admits exactly one explicitly named volume with --trim
+				if (!cmdLine.ArgUnresolvedMounts.empty() || cmdLine.ArgVolumes.size() != 1)
+					throw VolumeDiscoveryFailed (SRC_POS, cmdLine.ArgUnresolvedMounts.empty() ? wstring() : wstring (cmdLine.ArgUnresolvedMounts.front()));
+				// Exit code 1 unless the free space is trimmed completely, even if the volume was unmounted
+				if (!DismountVolumeAndTrim (cmdLine.ArgVolumes.front(), !Preferences.NonInteractive))
+					Application::SetExitCode (1);
+				return true;
+			}
 			DismountVolumes (cmdLine.ArgVolumes, cmdLine.ArgForce, !Preferences.NonInteractive
 #ifdef TC_LINUX
 				, cmdLine.ArgEmergencyUnmount
@@ -1530,6 +1610,16 @@ const FileManager fileManagers[] = {
 					" removes or schedules removal of VeraCrypt kernel objects. Pending writes may\n"
 					" already have failed, data may be lost, and cleanup may remain pending until\n"
 					" applications close open files. Use only for stale or removed-device states.\n"
+					"\n"
+#endif
+#ifdef TC_MACOSX
+					"--trim\n"
+					" Use with --unmount and exactly one MOUNTED_VOLUME: after unmounting, TRIM the\n"
+					" free space of the volume's exFAT filesystem on the host device, so the drive\n"
+					" can tell which parts of the volume hold no data. Normal volumes hosted on a\n"
+					" partition or device only. A hidden volume inside the outer volume is\n"
+					" destroyed. A warning asks for confirmation unless --non-interactive is given.\n"
+					" Cannot be combined with --force.\n"
 					"\n"
 #endif
 					"--fs-options=OPTIONS\n"

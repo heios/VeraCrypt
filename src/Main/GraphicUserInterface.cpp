@@ -1154,12 +1154,14 @@ namespace VeraCrypt
 			FatalErrorHandler::Register();
 			Init();
 
+			// A command can set exit code 1 and still return true, as --unmount --trim does
+			Application::SetExitCode (0);
 			if (ProcessCommandLine() && !CmdLine->StartBackgroundTask)
 			{
 				Yield();
-				Application::SetExitCode (0);
 				return false;
 			}
+			Application::SetExitCode (1);	// The default set in main()
 
 			// Check if another instance is already running and bring its windows to foreground
 #ifndef TC_MACOSX
@@ -1325,6 +1327,7 @@ namespace VeraCrypt
 		catch (exception &e)
 		{
 			ShowError (e);
+			Application::SetExitCode (1);
 			return false;
 		}
 

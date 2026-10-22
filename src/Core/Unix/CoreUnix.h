@@ -17,9 +17,12 @@
 #include "Platform/Unix/Process.h"
 #include "Core/CoreBase.h"
 #include "Core/Unix/MountedFilesystem.h"
+#include <functional>
 
 namespace VeraCrypt
 {
+	struct ExfatRange;
+
 	class CoreUnix : public CoreBase
 	{
 	public:
@@ -29,6 +32,7 @@ namespace VeraCrypt
 		virtual void CheckFilesystem (shared_ptr <VolumeInfo> mountedVolume, bool repair = false) const;
 		virtual void DismountFilesystem (const DirectoryPath &mountPoint, bool force) const;
 		virtual shared_ptr <VolumeInfo> DismountVolume (shared_ptr <VolumeInfo> mountedVolume, bool ignoreOpenFiles = false, bool syncVolumeInfo = false);
+		virtual uint64 DismountVolumeAndTrim (shared_ptr <VolumeInfo> mountedVolume, wstring &skipReason);
 #ifdef TC_LINUX
 		virtual shared_ptr <VolumeInfo> EmergencyDismountVolume (shared_ptr <VolumeInfo> mountedVolume);
 #endif
@@ -46,6 +50,7 @@ namespace VeraCrypt
 		virtual bool IsOSVersion (int major, int minor) const { throw NotApplicable (SRC_POS); }
 		virtual bool IsOSVersionLower (int major, int minor) const { throw NotApplicable (SRC_POS); }
 		virtual bool IsPasswordCacheEmpty () const { throw NotApplicable (SRC_POS); }
+		virtual bool IsTrimSupported (shared_ptr <VolumeInfo> mountedVolume, wstring &reason) const;
 		virtual bool HasAdminPrivileges () const { return getuid() == 0 || geteuid() == 0; }
 		virtual VolumeSlotNumber MountPointToSlotNumber (const DirectoryPath &mountPoint) const;
 		virtual shared_ptr <VolumeInfo> MountVolume (MountOptions &options);
@@ -76,6 +81,34 @@ namespace VeraCrypt
 		virtual DevicePath MountAuxVolumeImage (const DirectoryPath &auxMountPoint, const MountOptions &options) const;
 		virtual void MountVolumeNative (shared_ptr <Volume> volume, MountOptions &options, const DirectoryPath &auxMountPoint) const { throw NotApplicable (SRC_POS); }
 		virtual void UpdateMountedVolumeInfo (shared_ptr <VolumeInfo> mountedVolume) const { (void) mountedVolume; }
+
+		typedef function <void (const VolumeInfo &)> DetachedVolumeHandler;
+		virtual shared_ptr <VolumeInfo> DetachVolume (shared_ptr <VolumeInfo> mountedVolume, bool ignoreOpenFiles, bool syncVolumeInfo, const DetachedVolumeHandler &onDetached);
+
+		struct DeviceVolumeRecord
+		{
+			uint64 DataOffset;
+			uint64 DataSize;
+			int32 MountId[2];	// identity of the auxiliary mount the record was written for
+			uint8 Type;			// VolumeType::Enum
+			uint8 Protection;	// VolumeProtection::Enum
+			uint8 Header[512];
+		};
+
+		void RecordDeviceHostedVolume (const Volume &volume, const DirectoryPath &auxMountPoint) const;
+		void RemoveDeviceHostedVolumeRecord (const VolumePath &devicePath) const;
+
+		static const int TrimFsckTimeout = 10 * 60 * 1000;
+		static const size_t TrimFsckOutputLimit = 1 << 20;
+
+		virtual bool SupportsTrimAfterDismount () const { return false; }
+		virtual string GetTrimDevicePath (const FilesystemPath &devicePath) const { throw NotApplicable (SRC_POS); }
+		virtual int OpenTrimDevice (const string &devicePath, bool readWrite, uint64 &size, uint32 &blockSize) const { throw NotApplicable (SRC_POS); }
+		virtual bool TrimDeviceSupportsDiscard (int fd, const string &devicePath) const { throw NotApplicable (SRC_POS); }
+		virtual bool IsExfatMounted (const VolumeInfo &volume, uint64 &freeBytes) const { throw NotApplicable (SRC_POS); }
+		virtual void CheckExfatFilesystem (const string &devicePath) const { throw NotApplicable (SRC_POS); }
+		virtual void FlushTrimDevice (int fd) const { throw NotApplicable (SRC_POS); }
+		virtual void DiscardTrimExtents (int fd, const string &devicePath, const vector <ExfatRange> &extents) const { throw NotApplicable (SRC_POS); }
 #ifdef TC_MACOSX
 		virtual void UpdateMountedVolumesInfo (VolumeInfoList &volumes) const;
 #endif
@@ -96,6 +129,12 @@ namespace VeraCrypt
 	private:
 		CoreUnix (const CoreUnix &);
 		CoreUnix &operator= (const CoreUnix &);
+		void CompleteDismount (shared_ptr <VolumeInfo> mountedVolume);
+		string GetDeviceHostedVolumeRecordName (const FilesystemPath &devicePath) const;
+		string GetDeviceHostedVolumeRecordPath (const FilesystemPath &devicePath) const;
+		static bool HostHeaderMatches (int fd, uint32 blockSize, const DeviceVolumeRecord &record);
+		static int OpenDeviceHostedVolumeRecordDirectory ();
+		DeviceVolumeRecord ReadDeviceHostedVolumeRecord (const VolumeInfo &volume, uint64 hostSize) const;
 	};
 }
 

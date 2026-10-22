@@ -1711,11 +1711,10 @@ namespace VeraCrypt
 	{
 		try
 		{
+			// A command can set exit code 1 and still return true, as --unmount --trim does
+			Application::SetExitCode (0);
 			if (ProcessCommandLine ())
-			{
-				Application::SetExitCode (0);
-				return 0;
-			}
+				return Application::GetExitCode();
 		}
 		catch (exception &e)
 		{

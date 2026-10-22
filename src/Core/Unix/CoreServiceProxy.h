@@ -55,6 +55,17 @@ namespace VeraCrypt
 			return dismountedVolumeInfo;
 		}
 
+		virtual uint64 DismountVolumeAndTrim (shared_ptr <VolumeInfo> mountedVolume, wstring &skipReason)
+		{
+			// The request throws unless the volume got dismounted
+			uint64 trimmedBytes = CoreService::RequestDismountVolumeAndTrim (mountedVolume, skipReason);
+
+			VolumeEventArgs eventArgs (mountedVolume);
+			T::VolumeDismountedEvent.Raise (eventArgs);
+
+			return trimmedBytes;
+		}
+
 #ifdef TC_LINUX
 		virtual shared_ptr <VolumeInfo> EmergencyDismountVolume (shared_ptr <VolumeInfo> mountedVolume)
 		{

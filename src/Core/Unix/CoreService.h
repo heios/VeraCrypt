@@ -29,6 +29,7 @@ namespace VeraCrypt
 		static void RequestCheckFilesystem (shared_ptr <VolumeInfo> mountedVolume, bool repair);
 		static void RequestDismountFilesystem (const DirectoryPath &mountPoint, bool force);
 		static shared_ptr <VolumeInfo> RequestDismountVolume (shared_ptr <VolumeInfo> mountedVolume, bool ignoreOpenFiles = false, bool syncVolumeInfo = false);
+		static uint64 RequestDismountVolumeAndTrim (shared_ptr <VolumeInfo> mountedVolume, wstring &skipReason);
 #ifdef TC_LINUX
 		static shared_ptr <VolumeInfo> RequestEmergencyDismountVolume (shared_ptr <VolumeInfo> mountedVolume);
 #endif

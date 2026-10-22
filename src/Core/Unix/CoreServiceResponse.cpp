@@ -54,6 +54,21 @@ namespace VeraCrypt
 		DismountedVolumeInfo->Serialize (stream);
 	}
 
+	// DismountVolumeAndTrimResponse
+	void DismountVolumeAndTrimResponse::DeserializeData (shared_ptr <Stream> stream)
+	{
+		Serializer sr (stream);
+		sr.Deserialize ("SkipReason", SkipReason);
+		sr.Deserialize ("TrimmedBytes", TrimmedBytes);
+	}
+
+	void DismountVolumeAndTrimResponse::SerializeData (shared_ptr <Stream> stream) const
+	{
+		Serializer sr (stream);
+		sr.Serialize ("SkipReason", SkipReason);
+		sr.Serialize ("TrimmedBytes", TrimmedBytes);
+	}
+
 	// GetDeviceSectorSizeResponse
 	void GetDeviceSectorSizeResponse::DeserializeData (shared_ptr <Stream> stream)
 	{
@@ -154,6 +169,7 @@ namespace VeraCrypt
 	TC_SERIALIZER_FACTORY_ADD_CLASS (CheckFilesystemResponse);
 	TC_SERIALIZER_FACTORY_ADD_CLASS (DismountFilesystemResponse);
 	TC_SERIALIZER_FACTORY_ADD_CLASS (DismountVolumeResponse);
+	TC_SERIALIZER_FACTORY_ADD_CLASS (DismountVolumeAndTrimResponse);
 	TC_SERIALIZER_FACTORY_ADD_CLASS (GetDeviceSectorSizeResponse);
 	TC_SERIALIZER_FACTORY_ADD_CLASS (GetDeviceSizeResponse);
 	TC_SERIALIZER_FACTORY_ADD_CLASS (GetHostDevicesResponse);

@@ -43,6 +43,8 @@ namespace VeraCrypt
 #if defined(TC_LINUX)
 		virtual shared_ptr <VolumeInfo> EmergencyDismountVolume (shared_ptr <VolumeInfo> mountedVolume) { throw NotApplicable (SRC_POS); }
 #endif
+		virtual uint64 DismountVolumeAndTrim (shared_ptr <VolumeInfo> mountedVolume, wstring &skipReason) { throw NotApplicable (SRC_POS); }
+		virtual bool IsTrimSupported (shared_ptr <VolumeInfo> mountedVolume, wstring &reason) const { reason = L"TRIM_NOT_SUPPORTED_ON_PLATFORM"; return false; }
 		virtual bool FilesystemSupportsLargeFiles (const FilePath &filePath) const = 0;
 		virtual DirectoryPath GetDeviceMountPoint (const DevicePath &devicePath) const = 0;
 		virtual uint32 GetDeviceSectorSize (const DevicePath &devicePath) const = 0;

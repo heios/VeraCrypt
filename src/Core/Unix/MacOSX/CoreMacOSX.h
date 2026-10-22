@@ -25,13 +25,24 @@ namespace VeraCrypt
 		virtual ~CoreMacOSX ();
 
 		virtual void CheckFilesystem (shared_ptr <VolumeInfo> mountedVolume, bool repair = false) const;
-		virtual shared_ptr <VolumeInfo> DismountVolume (shared_ptr <VolumeInfo> mountedVolume, bool ignoreOpenFiles = false, bool syncVolumeInfo = false);
 		virtual string GetDefaultMountPointPrefix () const { return "/Volumes/veracrypt"; }
+		virtual bool IsTrimSupported (shared_ptr <VolumeInfo> mountedVolume, wstring &reason) const;
 
 	protected:
+		virtual shared_ptr <VolumeInfo> DetachVolume (shared_ptr <VolumeInfo> mountedVolume, bool ignoreOpenFiles, bool syncVolumeInfo, const DetachedVolumeHandler &onDetached);
 		virtual DevicePath MountAuxVolumeImage (const DirectoryPath &auxMountPoint, const MountOptions &options) const;
 		virtual void UpdateMountedVolumeInfo (shared_ptr <VolumeInfo> mountedVolume) const;
 		virtual void UpdateMountedVolumesInfo (VolumeInfoList &volumes) const;
+
+		// TRIM after unmount (see CoreUnix)
+		virtual bool SupportsTrimAfterDismount () const { return true; }
+		virtual string GetTrimDevicePath (const FilesystemPath &devicePath) const;
+		virtual int OpenTrimDevice (const string &devicePath, bool readWrite, uint64 &size, uint32 &blockSize) const;
+		virtual bool TrimDeviceSupportsDiscard (int fd, const string &devicePath) const;
+		virtual bool IsExfatMounted (const VolumeInfo &volume, uint64 &freeBytes) const;
+		virtual void CheckExfatFilesystem (const string &devicePath) const;
+		virtual void FlushTrimDevice (int fd) const;
+		virtual void DiscardTrimExtents (int fd, const string &devicePath, const vector <ExfatRange> &extents) const;
 
 	private:
 		CoreMacOSX (const CoreMacOSX &);
